@@ -14,7 +14,7 @@
     <VCProjectVersion>17.0</VCProjectVersion>
     <ProjectGuid>{7A8E6F12-4B9D-4E53-9C8A-1D2E3F4A5B6C}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>XtremeToolEnhanced</RootNamespace>
+    <RootNamespace>XtremeFork-Universal</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />

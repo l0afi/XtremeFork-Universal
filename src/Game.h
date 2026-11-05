@@ -11,7 +11,7 @@ enum class Edition {
     Legacy    // GTA5.exe (Gen8 / Legacy Edition)
 };
 
-inline constexpr const char* kVersionString = "v1.2 Universal (Enhanced & Legacy)";
+inline constexpr const char* kVersionString = "v1.2 (Enhanced & Legacy)";
 inline constexpr const char* kEnhancedExecutable = "GTA5_Enhanced.exe";
 inline constexpr const char* kLegacyExecutable = "GTA5.exe";
 inline constexpr int32_t kDefaultPedPoolLimit = 256;
@@ -24,7 +24,7 @@ inline constexpr uint32_t kLimitFixInstance4Value = 240000; // 0x3A980
 Edition DetectEdition();
 bool IsEnhancedEdition();
 
-// Runs XtremeTool Universal configuration, logging, and edition-specific memory patches.
+// Runs XtremeFork-Universal configuration, logging, and edition-specific memory patches.
 void Initialize();
 
 // ===========================================================================

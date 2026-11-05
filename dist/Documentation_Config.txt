@@ -1,4 +1,4 @@
-Explanation of all parameters in XtremeTool.ini (Universal — GTA V Enhanced & Legacy):
+Explanation of all parameters in XtremeTool.ini — XtremeFork-Universal (GTA V Enhanced & Legacy):
 
 PED_SPAWN_AMBIENT_MULTIPLIER -> Spawn multiplier for ambient peds (mostly walking peds). Note that this affects just the spawn rate (how fast peds spawn) not the maximum number of peds.
 PED_SPAWN_SCENARIO_MULTIPLIER -> Spawn multiplier for scenario peds (usually standing peds doing different activities). Note that this affects just the spawn rate (how fast peds spawn) not the maximum number of peds.

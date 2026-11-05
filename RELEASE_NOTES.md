@@ -1,13 +1,13 @@
-# Release v1.0.0-alpha: XtremeTool Universal
+# Release v1.0.0-alpha: XtremeFork-Universal
 
-Initial alpha release of **XtremeTool Universal** — an open-source, modern C++20 recreation of XtremeTool supporting both **GTA V Enhanced** (`GTA5_Enhanced.exe`) and **GTA V Legacy** (`GTA5.exe`) through a single, unified `.asi` binary.
+Initial alpha release of **XtremeFork-Universal** — an open-source, modern C++20 fork and reconstruction of *XtremeTool* supporting both **GTA V Enhanced** (`GTA5_Enhanced.exe`, builds `v1.0.811.8` – `v1.0.1158.13+`) and **GTA V Legacy** (`GTA5.exe`, builds `v1.0.3095.0` – `v1.0.3889.0+`) through a single, unified `.asi` binary.
 
 ---
 
 ## 🌟 What's New
 
 ### 🌍 Universal Architecture
-- **Automatic Edition Detection**: Detects whether the game process is running `GTA5_Enhanced.exe` or `GTA5.exe` at startup, with a fallback pattern scan if the executable is renamed.
+- **Automatic Edition Detection**: Detects whether the game process is running `GTA5_Enhanced.exe` or `GTA5.exe` at startup, with a fallback byte-pattern scan if the executable is renamed.
 - **Unified Configuration**: Use one single `XtremeTool.ini` config file regardless of which GTA V edition you are playing.
 
 ### 🚗 Density & Population Controls
@@ -19,7 +19,7 @@ Initial alpha release of **XtremeTool Universal** — an open-source, modern C++
 - **Benchmarking Mode**: Option to toggle `SKIP_PEDS_PATHFIND_PASS` to bypass pedestrian pathfinding logic for high-entity FPS benchmarking.
 
 ### 🧠 64-Bit Memory Allocator & Stability Fixes
-- **Break the 2GB / 4GB Barrier**: Safely enables 64-bit allocation sizes for the Main Heap (`HEAP_SIZE`), Pool Heap (`POOL_SIZE`), and Resource Heap (`RESOURCE_SIZE`).
+- **Break the 2 GB / 4 GB Barrier**: Safely enables 64-bit allocation sizes for the Main Heap (`HEAP_SIZE`), Pool Heap (`POOL_SIZE`), and Resource Heap (`RESOURCE_SIZE`) on both Enhanced and Legacy.
 - **Safe Trampoline Allocator**: Fixes a critical bug from original legacy releases where 64-bit jumps overwrote surrounding game code in `.text`. Trampolines and pointer slots are now safely allocated in dedicated memory pages within RIP-relative reach.
 - **64-Bit Math Overflow Protection**: Arithmetic on heap sizes now uses 64-bit integers to prevent truncation and negative allocation sizes when configuring heaps $\ge$ 4096 MB.
 - **Memory Protection Wrap**: All patch writes safely acquire `PAGE_EXECUTE_READWRITE` permissions before modifying memory.
@@ -48,4 +48,4 @@ Initial alpha release of **XtremeTool Universal** — an open-source, modern C++
 
 - **Alpha Release**: Please back up your game directory and save files before installing.
 - **Vehicle Pool in `gameconfig.xml`**: When setting `VEH_LIMIT` higher than vanilla, ensure your `gameconfig.xml` vehicle pool sizes match your configured limit.
-- **AI-Assisted Reconstruction**: This project was reconstructed and reverse-engineered with the assistance of an AI coding agent based on the original work by **Xtreme**.
+- **AI-Assisted Reconstruction**: **XtremeFork-Universal** was reconstructed and reverse-engineered with the assistance of an AI coding agent based on the original work by **Xtreme**.

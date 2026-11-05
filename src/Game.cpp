@@ -899,7 +899,7 @@ void Initialize() {
 
     uintptr_t gameBase = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
 
-    Logger::Log(std::string("XtremeTool ") + kVersionString + " developed by XtremeV (-Vegas-)");
+    Logger::Log(std::string("XtremeFork-Universal ") + kVersionString + " (based on XtremeTool by XtremeV)");
     Logger::Log(std::string("Detected Edition: ") +
                 (edition == Edition::Enhanced ? "GTA V Enhanced (GTA5_Enhanced.exe)" : "GTA V Legacy (GTA5.exe)"));
     Logger::Log("Loaded - Game Base: " + std::to_string(gameBase));
