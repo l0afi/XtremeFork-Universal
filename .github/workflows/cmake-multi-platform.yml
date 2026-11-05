@@ -62,7 +62,9 @@ jobs:
           Copy-Item "dist/Put in main folder/XtremeTool.ini" -Destination "dist-package/XtremeTool.ini"
           Copy-Item "dist/ReadMe_Install.txt" -Destination "dist-package/ReadMe_Install.txt"
           Copy-Item "dist/Documentation_Config.txt" -Destination "dist-package/Documentation_Config.txt"
-          Copy-Item "RELEASE_NOTES.md" -Destination "dist-package/RELEASE_NOTES.md"
+          if (Test-Path ".RELEASE_NOTES.md") {
+            Copy-Item ".RELEASE_NOTES.md" -Destination "dist-package/RELEASE_NOTES.md"
+          }
           Compress-Archive -Path "dist-package/*" -DestinationPath "XtremeFork-Universal-Windows-x64.zip"
 
       - name: Create GitHub Release
@@ -70,6 +72,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: XtremeFork-Universal-Windows-x64.zip
-          body_path: RELEASE_NOTES.md
+          body_path: .RELEASE_NOTES.md
           draft: false
           prerelease: true
