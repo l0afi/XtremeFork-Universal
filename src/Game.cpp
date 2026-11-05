@@ -5,30 +5,60 @@
 
 #include <windows.h>
 #include <psapi.h>
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 
 namespace Game {
 
-bool IsEnhancedEdition() {
-    char moduleName[MAX_PATH] = {};
-    HMODULE hModule = GetModuleHandleW(nullptr);
-    if (GetModuleBaseNameA(GetCurrentProcess(), hModule, moduleName, sizeof(moduleName)) == 0) {
-        return false;
-    }
-    return std::strcmp(moduleName, kTargetExecutable) == 0;
-}
-
 // ---------------------------------------------------------------------------
-// 1. Main Heap Size (32-bit & 64-bit)
-// Pattern: BA ?? ?? ?? ?? 45 31 C0 41 B1 01 E8 ?? ?? ?? ?? 48 8D 0D
-// Mask:    x????xxxxxxx????xxx
+// Primary Heap Signatures (also used as fallback edition probes)
 // ---------------------------------------------------------------------------
 static constexpr const char* kHeapSizePattern =
     "\xBA\x00\x00\x00\x00\x45\x31\xC0\x41\xB1\x01\xE8\x00\x00\x00\x00\x48\x8D\x0D";
 static constexpr const char* kHeapSizeMask = "x????xxxxxxx????xxx";
 
+static constexpr const char* kLegacyHeapSizePattern =
+    "\x48\x8D\x0D\x00\x00\x00\x00\x41\xB1\x01\x45\x33\xC0\xBA";
+static constexpr const char* kLegacyHeapSizeMask = "xxx????xxxxxxx";
+
+Edition DetectEdition() {
+    char moduleName[MAX_PATH] = {};
+    HMODULE hModule = GetModuleHandleW(nullptr);
+    if (GetModuleBaseNameA(GetCurrentProcess(), hModule, moduleName, sizeof(moduleName)) != 0) {
+        if (_stricmp(moduleName, kEnhancedExecutable) == 0) {
+            return Edition::Enhanced;
+        }
+        if (_stricmp(moduleName, kLegacyExecutable) == 0) {
+            return Edition::Legacy;
+        }
+    }
+
+    // Fallback signature probe if the user renamed the game executable
+    if (Memory::FindPattern(kHeapSizePattern, kHeapSizeMask) != 0) {
+        return Edition::Enhanced;
+    }
+    if (Memory::FindPattern(kLegacyHeapSizePattern, kLegacyHeapSizeMask) != 0) {
+        return Edition::Legacy;
+    }
+
+    return Edition::Unknown;
+}
+
+bool IsEnhancedEdition() {
+    return DetectEdition() == Edition::Enhanced;
+}
+
+// ===========================================================================
+// GTA V ENHANCED EDITION (GTA5_Enhanced.exe) PATCHERS
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 1. Enhanced Main Heap Size (32-bit & 64-bit)
+// Pattern: BA ?? ?? ?? ?? 45 31 C0 41 B1 01 E8 ?? ?? ?? ?? 48 8D 0D
+// Mask:    x????xxxxxxx????xxx
+// ---------------------------------------------------------------------------
 bool PatchMainHeapSize32(uint32_t heapBytes) {
     uintptr_t match = Memory::FindPattern(kHeapSizePattern, kHeapSizeMask);
     if (!match) {
@@ -51,22 +81,10 @@ bool PatchMainHeapSize64(uint64_t heapBytes) {
 
     Logger::Log("Overwriting heap size - OK");
 
-    auto* trampoline = static_cast<uint8_t*>(std::malloc(0x1000));
+    uint8_t* trampoline = Memory::AllocateTrampolineNear(match, 0x1000);
     if (!trampoline) {
         return false;
     }
-
-    DWORD oldProtect = 0;
-    VirtualProtect(trampoline, 0x1000, PAGE_EXECUTE_READWRITE, &oldProtect);
-
-    // Store pointer to trampoline at [match - 0xFFF]
-    uintptr_t ptrSlot = match - 0xFFF;
-    uint64_t trampAddr = reinterpret_cast<uint64_t>(trampoline);
-    Memory::PatchBytes(ptrSlot, &trampAddr, sizeof(uint64_t));
-
-    // Write indirect jump at match: FF 25 FB EF FF FF -> jmp qword ptr [rip - 0x1005]
-    const uint8_t jmpStub[6] = { 0xFF, 0x25, 0xFB, 0xEF, 0xFF, 0xFF };
-    Memory::PatchBytes(match, jmpStub, sizeof(jmpStub));
 
     // Trampoline payload:
     // +0x00: 48 BA <8-byte heapBytes>   ; movabs rdx, heapBytes
@@ -89,11 +107,12 @@ bool PatchMainHeapSize64(uint64_t heapBytes) {
     code[25] = 0xE1;
 
     Memory::PatchBytes(reinterpret_cast<uintptr_t>(trampoline), code, sizeof(code));
+    Memory::WriteIndirectJump64(match, trampoline, match - 0xFFF, 2);
     return true;
 }
 
 // ---------------------------------------------------------------------------
-// 2. Pool Heap Size (32-bit & 64-bit)
+// 2. Enhanced Pool Heap Size (32-bit & 64-bit)
 // Pattern: 48 ?? ?? ?? ?? ?? ?? 48 ?? ?? ?? ?? ?? ?? 41 B8 00 00 01 00 41 B9 ?? ?? ?? ?? E8
 // Mask:    x??????x??????xxxxxxxx????x
 // ---------------------------------------------------------------------------
@@ -124,22 +143,10 @@ bool PatchPoolHeapSize64(uint64_t poolBytes) {
     uintptr_t baseAnchor = match + 0x10;
     Logger::Log("Overwriting pool size - OK");
 
-    auto* trampoline = static_cast<uint8_t*>(std::malloc(0x1000));
+    uint8_t* trampoline = Memory::AllocateTrampolineNear(baseAnchor, 0x1000);
     if (!trampoline) {
         return false;
     }
-
-    DWORD oldProtect = 0;
-    VirtualProtect(trampoline, 0x1000, PAGE_EXECUTE_READWRITE, &oldProtect);
-
-    // Store pointer to trampoline at [baseAnchor - 0xFFB]
-    uintptr_t ptrSlot = baseAnchor - 0xFFB;
-    uint64_t trampAddr = reinterpret_cast<uint64_t>(trampoline);
-    Memory::PatchBytes(ptrSlot, &trampAddr, sizeof(uint64_t));
-
-    // Write indirect jump at baseAnchor + 4 (match + 0x14): FF 25 FB EF FF FF
-    const uint8_t jmpStub[6] = { 0xFF, 0x25, 0xFB, 0xEF, 0xFF, 0xFF };
-    Memory::PatchBytes(baseAnchor + 4, jmpStub, sizeof(jmpStub));
 
     // Trampoline payload:
     // +0x00: 49 B9 <8-byte poolBytes>          ; movabs r9, poolBytes
@@ -157,11 +164,12 @@ bool PatchPoolHeapSize64(uint64_t poolBytes) {
     code[21] = 0xE0;
 
     Memory::PatchBytes(reinterpret_cast<uintptr_t>(trampoline), code, sizeof(code));
+    Memory::WriteIndirectJump64(baseAnchor + 4, trampoline, baseAnchor - 0xFFB, 0);
     return true;
 }
 
 // ---------------------------------------------------------------------------
-// 3. Resource Heap Size (32-bit & 64-bit)
+// 3. Enhanced Resource Heap Size (32-bit & 64-bit)
 // Pattern: 48 ?? ?? ?? ?? ?? ?? BA 00 20 00 00 41 B8 ?? ?? ?? ??
 // Mask:    x??????xxxxxxxx????
 // ---------------------------------------------------------------------------
@@ -192,22 +200,10 @@ bool PatchResourceHeapSize64(uint64_t resourceBytes) {
     uintptr_t baseAnchor = match + 0x08;
     Logger::Log("Overwriting resource size - OK");
 
-    auto* trampoline = static_cast<uint8_t*>(std::malloc(0x1000));
+    uint8_t* trampoline = Memory::AllocateTrampolineNear(baseAnchor, 0x1000);
     if (!trampoline) {
         return false;
     }
-
-    DWORD oldProtect = 0;
-    VirtualProtect(trampoline, 0x1000, PAGE_EXECUTE_READWRITE, &oldProtect);
-
-    // Store pointer to trampoline at [baseAnchor - 0xFFB]
-    uintptr_t ptrSlot = baseAnchor - 0xFFB;
-    uint64_t trampAddr = reinterpret_cast<uint64_t>(trampoline);
-    Memory::PatchBytes(ptrSlot, &trampAddr, sizeof(uint64_t));
-
-    // Write indirect jump at baseAnchor + 4 (match + 0x0C): FF 25 FB EF FF FF
-    const uint8_t jmpStub[6] = { 0xFF, 0x25, 0xFB, 0xEF, 0xFF, 0xFF };
-    Memory::PatchBytes(baseAnchor + 4, jmpStub, sizeof(jmpStub));
 
     // Trampoline payload:
     // +0x00: 49 B8 <8-byte resourceBytes>      ; movabs r8, resourceBytes
@@ -225,11 +221,12 @@ bool PatchResourceHeapSize64(uint64_t resourceBytes) {
     code[21] = 0xE0;
 
     Memory::PatchBytes(reinterpret_cast<uintptr_t>(trampoline), code, sizeof(code));
+    Memory::WriteIndirectJump64(baseAnchor + 4, trampoline, baseAnchor - 0xFFB, 0);
     return true;
 }
 
 // ---------------------------------------------------------------------------
-// 4. Ped & Vehicle Memory Budget (scans all instances of `05 60 E3 16 00`)
+// 4. Enhanced Ped & Vehicle Memory Budget (scans all instances of `05 60 E3 16 00`)
 // ---------------------------------------------------------------------------
 void PatchPedMemoryBudget(uint32_t pedMemBytes) {
     Memory::ModuleRegion region = Memory::GetMainModuleRegion();
@@ -267,7 +264,7 @@ void PatchPedMemoryBudget(uint32_t pedMemBytes) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Skip Peds Pathfind Pass
+// 5. Enhanced Skip Peds Pathfind Pass
 // Pattern: 48 89 44 24 30 89 5C 24 20 48 8D 0D
 // Mask:    xxxxxxxxxxxx
 // ---------------------------------------------------------------------------
@@ -289,7 +286,7 @@ void PatchSkipPedsPathfindPass() {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Spawn Multipliers (Ped Ambient, Ped Scenario, Veh Ambient, Veh Parked)
+// 6. Enhanced Spawn Multipliers (Ped Ambient, Ped Scenario, Veh Ambient, Veh Parked)
 // ---------------------------------------------------------------------------
 void PatchPedSpawnAmbientMultiplier(int32_t multiplier) {
     static constexpr const char* kPattern = "\x48\x8D\x51\x28\x48\x83\xC1\x2C\xE8";
@@ -348,7 +345,7 @@ void PatchVehSpawnParkedMultiplier(int32_t multiplier) {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Max Peds & Max Vehicles Spawn Caps
+// 7. Enhanced Max Peds & Max Vehicles Spawn Caps
 // ---------------------------------------------------------------------------
 void PatchMaxPeds(int32_t maxPeds) {
     static constexpr const char* kPattern = "\x48\x8D\x51\x30\x48\x83\xC1\x34\xE8";
@@ -393,7 +390,7 @@ void PatchMaxVehParked(int32_t maxVehParked) {
 }
 
 // ---------------------------------------------------------------------------
-// 8. Ped Pool Limit (> 256) Engine Fixes
+// 8. Enhanced Ped Pool Limit (> 256) Engine Fixes
 // ---------------------------------------------------------------------------
 void PatchPedPoolLimit(int32_t pedLimit) {
     // Instance 1
@@ -562,25 +559,349 @@ void PatchLimitFixInstance4(uint32_t value) {
     Memory::PatchBytes(target4, patch, sizeof(patch));
 }
 
+// ===========================================================================
+// GTA V LEGACY EDITION (GTA5.exe) PATCHERS
+// ===========================================================================
+
 // ---------------------------------------------------------------------------
-// Main Initialization Sequence (called at ASI load time)
+// 1. Legacy Main Heap Size (32-bit & 64-bit)
+// Pattern: 48 8D 0D ?? ?? ?? ?? 41 B1 01 45 33 C0 BA
+// Mask:    xxx????xxxxxxx
 // ---------------------------------------------------------------------------
+bool PatchLegacyMainHeapSize32(uint32_t heapBytes) {
+    uintptr_t match = Memory::FindPattern(kLegacyHeapSizePattern, kLegacyHeapSizeMask);
+    if (!match) {
+        Logger::Log("Failed to find heap size pattern");
+        return false;
+    }
+
+    uintptr_t immAddr = match + 0x0E;
+    Logger::Log("Overwriting heap size - OK");
+    Memory::WriteU32(immAddr, heapBytes);
+    return true;
+}
+
+bool PatchLegacyMainHeapSize64(uint64_t heapBytes) {
+    uintptr_t match = Memory::FindPattern(kLegacyHeapSizePattern, kLegacyHeapSizeMask);
+    if (!match) {
+        Logger::Log("Failed to find heap size pattern");
+        return false;
+    }
+
+    uintptr_t jmpSite = match + 0x0A; // points to `45 33 C0 BA xx xx xx xx` (8 bytes)
+    Logger::Log("Overwriting heap size - OK");
+
+    uint8_t* trampoline = Memory::AllocateTrampolineNear(jmpSite, 0x1000);
+    if (!trampoline) {
+        return false;
+    }
+
+    // Trampoline payload (matches Legacy v1.1 register conventions):
+    // +0x00: 48 BA <8-byte heapBytes>     ; movabs rdx, heapBytes
+    // +0x0A: 45 31 C0                     ; xor r8d, r8d
+    // +0x0D: 48 BB <8-byte (jmpSite + 8)> ; movabs rbx, jmpSite + 8
+    // +0x17: FF E3                        ; jmp rbx
+    uint8_t code[25];
+    code[0] = 0x48;
+    code[1] = 0xBA;
+    std::memcpy(&code[2], &heapBytes, sizeof(uint64_t));
+    code[10] = 0x45;
+    code[11] = 0x31;
+    code[12] = 0xC0;
+    code[13] = 0x48;
+    code[14] = 0xBB;
+    uint64_t retAddr = jmpSite + 8;
+    std::memcpy(&code[15], &retAddr, sizeof(uint64_t));
+    code[23] = 0xFF;
+    code[24] = 0xE3;
+
+    Memory::PatchBytes(reinterpret_cast<uintptr_t>(trampoline), code, sizeof(code));
+    Memory::WriteIndirectJump64(jmpSite, trampoline, jmpSite - 0x1FF, 2);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 2. Legacy Pool Heap Size (32-bit & 64-bit)
+// Pattern: 83 C8 04 48 8D 0D ?? ?? ?? ?? 41 B8
+// Mask:    xxxxxx????xx
+// ---------------------------------------------------------------------------
+static constexpr const char* kLegacyPoolSizePattern =
+    "\x83\xC8\x04\x48\x8D\x0D\x00\x00\x00\x00\x41\xB8";
+static constexpr const char* kLegacyPoolSizeMask = "xxxxxx????xx";
+
+bool PatchLegacyPoolHeapSize32(uint32_t poolBytes) {
+    uintptr_t match = Memory::FindPattern(kLegacyPoolSizePattern, kLegacyPoolSizeMask);
+    if (!match) {
+        Logger::Log("Failed to find pool size pattern");
+        return false;
+    }
+
+    uintptr_t immAddr = match + 0x0C;
+    Logger::Log("Overwriting pool size - OK");
+    Memory::WriteU32(immAddr, poolBytes);
+    return true;
+}
+
+bool PatchLegacyPoolHeapSize64(uint64_t poolBytes) {
+    uintptr_t match = Memory::FindPattern(kLegacyPoolSizePattern, kLegacyPoolSizeMask);
+    if (!match) {
+        Logger::Log("Failed to find pool size pattern");
+        return false;
+    }
+
+    uintptr_t jmpSite = match + 0x0A; // points to `41 B8 xx xx xx xx` (6 bytes)
+    Logger::Log("Overwriting pool size - OK");
+
+    uint8_t* trampoline = Memory::AllocateTrampolineNear(jmpSite, 0x1000);
+    if (!trampoline) {
+        return false;
+    }
+
+    // Trampoline payload:
+    // +0x00: 49 B8 <8-byte poolBytes>     ; movabs r8, poolBytes
+    // +0x0A: 48 BB <8-byte (jmpSite + 6)> ; movabs rbx, jmpSite + 6
+    // +0x14: FF E3                        ; jmp rbx
+    uint8_t code[22];
+    code[0] = 0x49;
+    code[1] = 0xB8;
+    std::memcpy(&code[2], &poolBytes, sizeof(uint64_t));
+    code[10] = 0x48;
+    code[11] = 0xBB;
+    uint64_t retAddr = jmpSite + 6;
+    std::memcpy(&code[12], &retAddr, sizeof(uint64_t));
+    code[20] = 0xFF;
+    code[21] = 0xE3;
+
+    Memory::PatchBytes(reinterpret_cast<uintptr_t>(trampoline), code, sizeof(code));
+    Memory::WriteIndirectJump64(jmpSite, trampoline, jmpSite - 0x1FF, 0);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 3. Legacy Resource Heap Size (32-bit & 64-bit)
+// Pattern: 83 C8 20 48 8D 0D ?? ?? ?? ?? 41 B8
+// Mask:    xxxxxx????xx
+// ---------------------------------------------------------------------------
+static constexpr const char* kLegacyResourceSizePattern =
+    "\x83\xC8\x20\x48\x8D\x0D\x00\x00\x00\x00\x41\xB8";
+static constexpr const char* kLegacyResourceSizeMask = "xxxxxx????xx";
+
+bool PatchLegacyResourceHeapSize32(uint32_t resourceBytes) {
+    uintptr_t match = Memory::FindPattern(kLegacyResourceSizePattern, kLegacyResourceSizeMask);
+    if (!match) {
+        Logger::Log("Failed to find resource size pattern");
+        return false;
+    }
+
+    uintptr_t immAddr = match + 0x0C;
+    Logger::Log("Overwriting resource size - OK");
+    Memory::WriteU32(immAddr, resourceBytes);
+    return true;
+}
+
+bool PatchLegacyResourceHeapSize64(uint64_t resourceBytes) {
+    uintptr_t match = Memory::FindPattern(kLegacyResourceSizePattern, kLegacyResourceSizeMask);
+    if (!match) {
+        Logger::Log("Failed to find resource size pattern");
+        return false;
+    }
+
+    uintptr_t jmpSite = match + 0x0A; // points to `41 B8 xx xx xx xx` (6 bytes)
+    Logger::Log("Overwriting resource size - OK");
+
+    uint8_t* trampoline = Memory::AllocateTrampolineNear(jmpSite, 0x1000);
+    if (!trampoline) {
+        return false;
+    }
+
+    // Trampoline payload:
+    // +0x00: 49 B8 <8-byte resourceBytes> ; movabs r8, resourceBytes
+    // +0x0A: 48 BA <8-byte (jmpSite + 6)> ; movabs rdx, jmpSite + 6
+    // +0x14: FF E2                        ; jmp rdx
+    uint8_t code[22];
+    code[0] = 0x49;
+    code[1] = 0xB8;
+    std::memcpy(&code[2], &resourceBytes, sizeof(uint64_t));
+    code[10] = 0x48;
+    code[11] = 0xBA;
+    uint64_t retAddr = jmpSite + 6;
+    std::memcpy(&code[12], &retAddr, sizeof(uint64_t));
+    code[20] = 0xFF;
+    code[21] = 0xE2;
+
+    Memory::PatchBytes(reinterpret_cast<uintptr_t>(trampoline), code, sizeof(code));
+    Memory::WriteIndirectJump64(jmpSite, trampoline, jmpSite - 0x1FF, 0);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 4. Legacy Ped Memory Budget
+// Pattern: 41 BE 60 E3 16 00 (`mov r14d, 0x16E360`)
+// Mask:    xxxxxx
+// ---------------------------------------------------------------------------
+void PatchLegacyPedMemoryBudget(uint32_t pedMemBytes) {
+    static constexpr const char* kBudgetPattern = "\x41\xBE\x60\xE3\x16\x00";
+    static constexpr const char* kBudgetMask = "xxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kBudgetPattern, kBudgetMask);
+    if (!match) {
+        Logger::Log("Failed to find ped memory budget pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting ped memory budget - OK");
+    Memory::WriteU32(match + 2, pedMemBytes);
+}
+
+// ---------------------------------------------------------------------------
+// 5. Legacy Skip Peds Pathfind Pass
+// Pattern: 48 8B 05 ?? ?? ?? ?? 4C 8B C7 48 ?? ?? ?? 30
+// Mask:    xxx????xxxx???x
+// ---------------------------------------------------------------------------
+void PatchLegacySkipPedsPathfindPass() {
+    static constexpr const char* kPathfindPattern =
+        "\x48\x8B\x05\x00\x00\x00\x00\x4C\x8B\xC7\x48\x00\x00\x00\x30";
+    static constexpr const char* kPathfindMask = "xxx????xxxx???x";
+
+    uintptr_t match = Memory::FindPattern(kPathfindPattern, kPathfindMask);
+    if (!match) {
+        Logger::Log("Failed to find peds pathfind pass pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting peds pathfind pass - OK");
+    // 4D 31 D2 90 90 -> xor r10, r10; nop; nop (protects all 5 bytes, fixing Legacy's 3-byte VirtualProtect bug)
+    const uint8_t patch[5] = { 0x4D, 0x31, 0xD2, 0x90, 0x90 };
+    Memory::PatchBytes(match + 0x0A, patch, sizeof(patch));
+}
+
+// ---------------------------------------------------------------------------
+// 6. Legacy Spawn Multipliers (overwrites the 5-byte `E8` call with `B8 <imm32>`)
+// ---------------------------------------------------------------------------
+void PatchLegacyPedSpawnAmbientMultiplier(int32_t multiplier) {
+    static constexpr const char* kPattern = "\x48\x83\xC1\x2C\xF3\x44\x0F\x59\xD6\xE8";
+    static constexpr const char* kMask = "xxxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find ped spawn ambient pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting ped spawn ambient rate - OK");
+    Memory::WriteMovEaxImm32(match + 9, static_cast<uint32_t>(multiplier * 100));
+}
+
+void PatchLegacyPedSpawnScenarioMultiplier(int32_t multiplier) {
+    static constexpr const char* kPattern = "\x48\x8D\x51\x20\x48\x83\xC1\x24\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find ped spawn scenario pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting ped spawn scenario rate - OK");
+    Memory::WriteMovEaxImm32(match + 8, static_cast<uint32_t>(multiplier * 100));
+}
+
+void PatchLegacyVehSpawnAmbientMultiplier(int32_t multiplier) {
+    static constexpr const char* kPattern = "\x48\x8D\x51\x4C\x48\x83\xC1\x50\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find veh spawn ambient pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting veh spawn ambient rate - OK");
+    Memory::WriteMovEaxImm32(match + 8, static_cast<uint32_t>(multiplier * 100));
+}
+
+void PatchLegacyVehSpawnParkedMultiplier(int32_t multiplier) {
+    static constexpr const char* kPattern = "\x48\x8D\x51\x58\x48\x83\xC1\x5C\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find veh spawn parked pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting veh spawn parked rate - OK");
+    Memory::WriteMovEaxImm32(match + 8, static_cast<uint32_t>(multiplier * 100));
+}
+
+// ---------------------------------------------------------------------------
+// 7. Legacy Max Peds & Max Vehicles Spawn Caps
+// ---------------------------------------------------------------------------
+void PatchLegacyMaxPeds(int32_t maxPeds) {
+    static constexpr const char* kPattern = "\xF3\x0F\x59\xC2\xF3\x0F\x2C\xD8\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find max peds pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting max peds - OK");
+    Memory::WriteMovEaxImm32(match + 8, static_cast<uint32_t>(maxPeds));
+}
+
+void PatchLegacyMaxVehAmbient(int32_t maxVehAmbient) {
+    static constexpr const char* kPattern = "\x48\x8D\x51\x68\x48\x83\xC1\x6C\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find max veh ambient pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting max veh ambient - OK");
+    Memory::WriteMovEaxImm32(match + 8, static_cast<uint32_t>(maxVehAmbient));
+}
+
+void PatchLegacyMaxVehParked(int32_t maxVehParked) {
+    static constexpr const char* kPattern = "\x48\x8D\x51\x74\x48\x83\xC1\x78\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find max veh parked pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting max veh parked - OK");
+    Memory::WriteMovEaxImm32(match + 8, static_cast<uint32_t>(maxVehParked));
+}
+
+// ===========================================================================
+//Main Initialization Sequence (Universal: Enhanced + Legacy)
+// ===========================================================================
 void Initialize() {
     Logger::Init("XtremeTool.log");
     Config cfg = Config::Load(L".\\XtremeTool.ini");
 
-    if (cfg.pedLimit > kMaxSafePedPoolLimit) {
-        Logger::Log("Config Error: Ped pool limit is 340 due to technical limitations (stack size of GTA 5 main thread)");
-        cfg.pedLimit = kMaxSafePedPoolLimit;
+    Edition edition = DetectEdition();
+    if (edition == Edition::Unknown) {
+        Logger::Log("Unsupported executable: neither GTA5_Enhanced.exe nor GTA5.exe was detected.");
+        return;
     }
 
-    if (!IsEnhancedEdition()) {
-        return;
+    if (edition == Edition::Enhanced && cfg.pedLimit > kMaxSafePedPoolLimit) {
+        Logger::Log("Config Error: Ped pool limit is 340 due to technical limitations (stack size of GTA 5 main thread)");
+        cfg.pedLimit = kMaxSafePedPoolLimit;
     }
 
     uintptr_t gameBase = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
 
     Logger::Log(std::string("XtremeTool ") + kVersionString + " developed by XtremeV (-Vegas-)");
+    Logger::Log(std::string("Detected Edition: ") +
+                (edition == Edition::Enhanced ? "GTA V Enhanced (GTA5_Enhanced.exe)" : "GTA V Legacy (GTA5.exe)"));
     Logger::Log("Loaded - Game Base: " + std::to_string(gameBase));
     Logger::Log("Ped Spawn Ambient Multiplier: " + std::to_string(cfg.pedSpawnAmbientMultiplier));
     Logger::Log("Ped Spawn Scenario Multiplier: " + std::to_string(cfg.pedSpawnScenarioMultiplier));
@@ -594,11 +915,13 @@ void Initialize() {
     Logger::Log("Resource Heap Size: " + std::to_string(cfg.resourceSize) + " MB");
     Logger::Log("Ped Mem Budget: " + std::to_string(cfg.pedMemSize) + " MB");
     Logger::Log("Veh Mem Budget: " + std::to_string(cfg.vehMemSize) + " MB");
-    Logger::Log("Ped Limit: " + std::to_string(cfg.pedLimit));
-    Logger::Log("Veh Limit: " + std::to_string(cfg.vehLimit));
+    if (edition == Edition::Enhanced) {
+        Logger::Log("Ped Limit: " + std::to_string(cfg.pedLimit));
+        Logger::Log("Veh Limit: " + std::to_string(cfg.vehLimit));
+    }
     Logger::Log(std::string("Skip Peds Pathfind Pass: ") + (cfg.skipPedsPathfindPass ? "Yes" : "No"));
 
-    // Convert MB to bytes (<< 20)
+    // Convert MB to bytes (<< 20) using 64-bit arithmetic to avoid 32-bit shift wrap-around
     uint64_t heapBytes = static_cast<uint64_t>(cfg.heapSize) << 20;
     uint64_t poolBytes = static_cast<uint64_t>(cfg.poolSize) << 20;
     uint64_t resourceBytes = static_cast<uint64_t>(cfg.resourceSize) << 20;
@@ -609,64 +932,128 @@ void Initialize() {
         Logger::Log("Pool Size is bigger than heap size, setting to " + std::to_string(poolBytes >> 20) + " MB");
     }
 
-    // 1. Main Heap Size
-    if (cfg.use64BitHeapSize) {
-        PatchMainHeapSize64(heapBytes);
+    if (edition == Edition::Enhanced) {
+        // 1. Main Heap Size
+        if (cfg.use64BitHeapSize) {
+            PatchMainHeapSize64(heapBytes);
+        } else {
+            PatchMainHeapSize32(static_cast<uint32_t>(heapBytes));
+        }
+
+        // 2. Pool Heap Size
+        if (cfg.use64BitPoolSize) {
+            PatchPoolHeapSize64(poolBytes);
+        } else {
+            PatchPoolHeapSize32(static_cast<uint32_t>(poolBytes));
+        }
+
+        // 3. Resource Heap Size
+        if (cfg.use64BitResourceSize) {
+            PatchResourceHeapSize64(resourceBytes);
+        } else {
+            PatchResourceHeapSize32(static_cast<uint32_t>(resourceBytes));
+        }
+
+        // 4. Ped & Vehicle Memory Budget
+        PatchPedMemoryBudget(pedMemBytes);
+
+        // 5. Optional Pathfind Pass Skip
+        if (cfg.skipPedsPathfindPass) {
+            PatchSkipPedsPathfindPass();
+        }
+
+        // 6. Spawn Multipliers
+        if (cfg.pedSpawnAmbientMultiplier != 1) {
+            PatchPedSpawnAmbientMultiplier(cfg.pedSpawnAmbientMultiplier);
+        }
+        if (cfg.pedSpawnScenarioMultiplier != 1) {
+            PatchPedSpawnScenarioMultiplier(cfg.pedSpawnScenarioMultiplier);
+        }
+        if (cfg.vehSpawnAmbientMultiplier != 1) {
+            PatchVehSpawnAmbientMultiplier(cfg.vehSpawnAmbientMultiplier);
+        }
+        if (cfg.vehSpawnParkedMultiplier != 1) {
+            PatchVehSpawnParkedMultiplier(cfg.vehSpawnParkedMultiplier);
+        }
+
+        // 7. Max Peds & Vehicles Spawn Caps
+        PatchMaxPeds(cfg.pedLimit - 10);
+        PatchMaxVehAmbient(cfg.vehLimit - 10);
+        PatchMaxVehParked(cfg.vehLimit - 20);
+
+        // 8. Ped Pool Limit (> 256) Fixes
+        if (cfg.pedLimit != kDefaultPedPoolLimit) {
+            PatchPedPoolLimit(cfg.pedLimit);
+            PatchLimitFixInstance1(cfg.pedLimit);
+            PatchLimitFixInstance2(cfg.pedLimit);
+            PatchLimitFixInstance3(cfg.pedLimit);
+        }
+
+        // 9. Limit Fix Instance 4
+        PatchLimitFixInstance4(kLimitFixInstance4Value);
     } else {
-        PatchMainHeapSize32(static_cast<uint32_t>(heapBytes));
-    }
+        // ===================================================================
+        // GTA V Legacy (GTA5.exe) Initialization Sequence
+        // Note: In Legacy, sizes <= 2047 MB fit cleanly into the native 32-bit
+        // immediate operand without needing a trampoline jump; larger sizes
+        // (or explicit 64-bit mode > 2047 MB) use our safe near-allocated trampoline.
+        // ===================================================================
+        const bool useHeap64 = cfg.use64BitHeapSize && (heapBytes > 0x7FFFFFFFULL);
+        const bool usePool64 = cfg.use64BitPoolSize && (poolBytes > 0x7FFFFFFFULL);
+        const bool useRes64  = cfg.use64BitResourceSize && (resourceBytes > 0x7FFFFFFFULL);
 
-    // 2. Pool Heap Size
-    if (cfg.use64BitPoolSize) {
-        PatchPoolHeapSize64(poolBytes);
-    } else {
-        PatchPoolHeapSize32(static_cast<uint32_t>(poolBytes));
-    }
+        // 1. Main Heap Size
+        if (useHeap64) {
+            if (!PatchLegacyMainHeapSize64(heapBytes)) return;
+        } else {
+            if (!PatchLegacyMainHeapSize32(static_cast<uint32_t>(heapBytes))) return;
+        }
 
-    // 3. Resource Heap Size
-    if (cfg.use64BitResourceSize) {
-        PatchResourceHeapSize64(resourceBytes);
-    } else {
-        PatchResourceHeapSize32(static_cast<uint32_t>(resourceBytes));
-    }
+        // 2. Pool Heap Size
+        if (usePool64) {
+            if (!PatchLegacyPoolHeapSize64(poolBytes)) return;
+        } else {
+            if (!PatchLegacyPoolHeapSize32(static_cast<uint32_t>(poolBytes))) return;
+        }
 
-    // 4. Ped & Vehicle Memory Budget
-    PatchPedMemoryBudget(pedMemBytes);
+        // 3. Resource Heap Size
+        if (useRes64) {
+            if (!PatchLegacyResourceHeapSize64(resourceBytes)) return;
+        } else {
+            if (!PatchLegacyResourceHeapSize32(static_cast<uint32_t>(resourceBytes))) return;
+        }
 
-    // 5. Optional Pathfind Pass Skip
-    if (cfg.skipPedsPathfindPass) {
-        PatchSkipPedsPathfindPass();
-    }
+        // 4. Ped Memory Budget
+        PatchLegacyPedMemoryBudget(pedMemBytes);
 
-    // 6. Spawn Multipliers
-    if (cfg.pedSpawnAmbientMultiplier != 1) {
-        PatchPedSpawnAmbientMultiplier(cfg.pedSpawnAmbientMultiplier);
-    }
-    if (cfg.pedSpawnScenarioMultiplier != 1) {
-        PatchPedSpawnScenarioMultiplier(cfg.pedSpawnScenarioMultiplier);
-    }
-    if (cfg.vehSpawnAmbientMultiplier != 1) {
-        PatchVehSpawnAmbientMultiplier(cfg.vehSpawnAmbientMultiplier);
-    }
-    if (cfg.vehSpawnParkedMultiplier != 1) {
-        PatchVehSpawnParkedMultiplier(cfg.vehSpawnParkedMultiplier);
-    }
+        // 5. Optional Pathfind Pass Skip
+        if (cfg.skipPedsPathfindPass) {
+            PatchLegacySkipPedsPathfindPass();
+        }
 
-    // 7. Max Peds & Vehicles Spawn Caps
-    PatchMaxPeds(cfg.pedLimit - 10);
-    PatchMaxVehAmbient(cfg.vehLimit - 10);
-    PatchMaxVehParked(cfg.vehLimit - 20);
+        // 6. Spawn Multipliers
+        if (cfg.pedSpawnAmbientMultiplier != 1) {
+            PatchLegacyPedSpawnAmbientMultiplier(cfg.pedSpawnAmbientMultiplier);
+        }
+        if (cfg.pedSpawnScenarioMultiplier != 1) {
+            PatchLegacyPedSpawnScenarioMultiplier(cfg.pedSpawnScenarioMultiplier);
+        }
+        if (cfg.vehSpawnAmbientMultiplier != 1) {
+            PatchLegacyVehSpawnAmbientMultiplier(cfg.vehSpawnAmbientMultiplier);
+        }
+        if (cfg.vehSpawnParkedMultiplier != 1) {
+            PatchLegacyVehSpawnParkedMultiplier(cfg.vehSpawnParkedMultiplier);
+        }
 
-    // 8. Ped Pool Limit (> 256) Fixes
-    if (cfg.pedLimit != kDefaultPedPoolLimit) {
-        PatchPedPoolLimit(cfg.pedLimit);
-        PatchLimitFixInstance1(cfg.pedLimit);
-        PatchLimitFixInstance2(cfg.pedLimit);
-        PatchLimitFixInstance3(cfg.pedLimit);
+        // 7. Max Peds & Vehicles Spawn Caps (1000 default in Legacy, or scaled if higher)
+        const int32_t legacyMaxPeds = std::max(kLegacyDefaultMaxSpawnCap, cfg.pedLimit - 10);
+        const int32_t legacyMaxVehAmbient = std::max(kLegacyDefaultMaxSpawnCap, cfg.vehLimit - 10);
+        const int32_t legacyMaxVehParked = std::max(kLegacyDefaultMaxSpawnCap, cfg.vehLimit - 20);
+
+        PatchLegacyMaxPeds(legacyMaxPeds);
+        PatchLegacyMaxVehAmbient(legacyMaxVehAmbient);
+        PatchLegacyMaxVehParked(legacyMaxVehParked);
     }
-
-    // 9. Limit Fix Instance 4
-    PatchLimitFixInstance4(kLimitFixInstance4Value);
 }
 
 } // namespace Game

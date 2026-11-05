@@ -2,6 +2,8 @@
 #include <windows.h>
 #include <psapi.h>
 #include <cstring>
+#include <cstdlib>
+#include <climits>
 
 namespace Memory {
 
@@ -87,6 +89,68 @@ void WriteMovRaxImm64Nop3(uintptr_t address, int64_t value) {
     patch[11] = 0x90; // nop
     patch[12] = 0x90; // nop
     PatchBytes(address, patch, sizeof(patch));
+}
+
+uint8_t* AllocateTrampolineNear(uintptr_t anchorAddr, size_t size) {
+    SYSTEM_INFO sysInfo{};
+    GetSystemInfo(&sysInfo);
+    const uintptr_t gran = sysInfo.dwAllocationGranularity ? sysInfo.dwAllocationGranularity : 0x10000;
+
+    const uintptr_t maxDelta = 0x70000000ULL; // ~1.75 GB (well within signed 32-bit RIP-relative range)
+    const uintptr_t minAddr = (anchorAddr > maxDelta)
+        ? ((anchorAddr - maxDelta) & ~(gran - 1))
+        : gran;
+    const uintptr_t maxAddr = anchorAddr + maxDelta;
+
+    // Search downward then upward from anchorAddr for a free allocation granularity slot
+    for (uintptr_t offset = gran; offset < maxDelta; offset += gran) {
+        if (anchorAddr > offset) {
+            uintptr_t candidate = (anchorAddr - offset) & ~(gran - 1);
+            if (candidate >= minAddr) {
+                if (void* mem = VirtualAlloc(reinterpret_cast<LPVOID>(candidate), size,
+                                             MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)) {
+                    return static_cast<uint8_t*>(mem);
+                }
+            }
+        }
+        uintptr_t candidateUp = (anchorAddr + offset) & ~(gran - 1);
+        if (candidateUp < maxAddr) {
+            if (void* mem = VirtualAlloc(reinterpret_cast<LPVOID>(candidateUp), size,
+                                         MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)) {
+                return static_cast<uint8_t*>(mem);
+            }
+        }
+    }
+
+    // Fallback to VirtualAlloc anywhere in the address space
+    return static_cast<uint8_t*>(VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+}
+
+void WriteIndirectJump64(uintptr_t jmpSite, uint8_t* trampoline, uintptr_t fallbackPtrSlot, size_t nopPadBytes) {
+    uint64_t trampAddr = reinterpret_cast<uint64_t>(trampoline);
+    uintptr_t internalPtrSlot = reinterpret_cast<uintptr_t>(trampoline + 0x80);
+    int64_t ripNext = static_cast<int64_t>(jmpSite + 6);
+    int64_t delta = static_cast<int64_t>(internalPtrSlot) - ripNext;
+
+    int32_t disp32 = 0;
+    if (delta >= INT32_MIN && delta <= INT32_MAX) {
+        // Store the 8-byte pointer inside our own allocated trampoline page (+0x80)
+        std::memcpy(trampoline + 0x80, &trampAddr, sizeof(uint64_t));
+        disp32 = static_cast<int32_t>(delta);
+    } else {
+        // Fallback to writing pointer slot at fallbackPtrSlot
+        PatchBytes(fallbackPtrSlot, &trampAddr, sizeof(uint64_t));
+        disp32 = static_cast<int32_t>(static_cast<int64_t>(fallbackPtrSlot) - ripNext);
+    }
+
+    uint8_t stub[16];
+    stub[0] = 0xFF;
+    stub[1] = 0x25;
+    std::memcpy(&stub[2], &disp32, sizeof(int32_t));
+    for (size_t i = 0; i < nopPadBytes && (6 + i) < sizeof(stub); ++i) {
+        stub[6 + i] = 0x90;
+    }
+    PatchBytes(jmpSite, stub, 6 + nopPadBytes);
 }
 
 } // namespace Memory
