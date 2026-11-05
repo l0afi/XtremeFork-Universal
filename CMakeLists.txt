@@ -33,6 +33,7 @@ set_target_properties(XtremeTool PROPERTIES
 )
 
 if(WIN32)
+    target_compile_definitions(XtremeTool PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_link_libraries(XtremeTool PRIVATE psapi)
     if(USE_SCRIPTHOOKV_REGISTER)
         target_compile_definitions(XtremeTool PRIVATE USE_SCRIPTHOOKV_REGISTER)

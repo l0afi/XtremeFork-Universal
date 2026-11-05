@@ -3,6 +3,9 @@
 #include "Logger.h"
 #include "Pattern.h"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <psapi.h>
 #include <algorithm>
@@ -1046,9 +1049,9 @@ void Initialize() {
         }
 
         // 7. Max Peds & Vehicles Spawn Caps (1000 default in Legacy, or scaled if higher)
-        const int32_t legacyMaxPeds = std::max(kLegacyDefaultMaxSpawnCap, cfg.pedLimit - 10);
-        const int32_t legacyMaxVehAmbient = std::max(kLegacyDefaultMaxSpawnCap, cfg.vehLimit - 10);
-        const int32_t legacyMaxVehParked = std::max(kLegacyDefaultMaxSpawnCap, cfg.vehLimit - 20);
+        const int32_t legacyMaxPeds = (std::max)(kLegacyDefaultMaxSpawnCap, cfg.pedLimit - 10);
+        const int32_t legacyMaxVehAmbient = (std::max)(kLegacyDefaultMaxSpawnCap, cfg.vehLimit - 10);
+        const int32_t legacyMaxVehParked = (std::max)(kLegacyDefaultMaxSpawnCap, cfg.vehLimit - 20);
 
         PatchLegacyMaxPeds(legacyMaxPeds);
         PatchLegacyMaxVehAmbient(legacyMaxVehAmbient);
