@@ -1,0 +1,47 @@
+name: Build & Release (Windows x64)
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*.*.*" ]
+  pull_request:
+    branches: [ "main" ]
+jobs:
+  build:
+    name: Build XtremeFork-Universal.asi (Windows MSVC)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Configure CMake
+        run: >
+          cmake -B ${{ github.workspace }}/build
+          -G "Visual Studio 17 2022"
+          -A x64
+          -DCMAKE_BUILD_TYPE=Release
+      - name: Build Plugin (.asi)
+        run: cmake --build ${{ github.workspace }}/build --config Release
+      - name: Verify Built Binary
+        shell: pwsh
+        run: |
+          $asi = Get-ChildItem -Path "${{ github.workspace }}/build" -Filter "*.asi" -Recurse
+          if (-not $asi) {
+            Write-Error "No .asi plugin was found in the build directory!"
+            exit 1
+          }
+          Write-Host "Found binary: $($asi.FullName)"
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: XtremeFork-Universal-Windows-x64
+          path: |
+            ${{ github.workspace }}/build/**/*.asi
+            ${{ github.workspace }}/dist/Put in main folder/XtremeTool.ini
+            ${{ github.workspace }}/dist/ReadMe_Install.txt
+            ${{ github.workspace }}/dist/Documentation_Config.txt
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+    permissions:
+      contents: write
