@@ -1,4 +1,4 @@
-Explanation of all parameters in XtremeTool.ini:
+Explanation of all parameters in XtremeTool.ini (Universal — GTA V Enhanced & Legacy):
 
 PED_SPAWN_AMBIENT_MULTIPLIER -> Spawn multiplier for ambient peds (mostly walking peds). Note that this affects just the spawn rate (how fast peds spawn) not the maximum number of peds.
 PED_SPAWN_SCENARIO_MULTIPLIER -> Spawn multiplier for scenario peds (usually standing peds doing different activities). Note that this affects just the spawn rate (how fast peds spawn) not the maximum number of peds.
@@ -12,8 +12,8 @@ POOL_SIZE -> The size of the pool heap in MB. Default for Enhanced is 688 MB. No
 USE_64BIT_RESOURCE_SIZE -> Whether to use a 64 bit allocation size for the resource heap. This breaks the 4 GB size limit. Set this to 1 when using a resource size higher than 4 GB. Values can be 0 or 1.
 RESOURCE_SIZE -> The size of the resource heap in MB. Default for Enhanced is 3500 MB.
 PED_MEM_SIZE -> The memory budget for peds in MB. Raise this value when using modded peds.
-VEH_MEM_SIZE -> The memory budget for vehicles in MB. Raise this value when using modded vehicles.
-PED_LIMIT -> The size of the ped pool. Note that you do NOT need to modify the limit in gameconfig.xml as it will be overwritten by this parameter. Also the maximum number of peds will be overwritten by this parameter (will be set to PED_LIMIT - 10). Due to technical limitations, 340 is the max limit right now. Default value is 256.
-VEH_LIMIT -> The size of the vehicle pool. Unlike PED_LIMIT, you MUST set the vehicle pool values in gameconfig.xml ("Vehicle" and "CVehicle" pools) to the same value as VEH_LIMIT (this will be fixed in next version of the mod!). Also the maximum number of vehicles will be overwritten by this parameter (will be set to VEH_LIMIT - 10 for ambient vehicles and VEH_LIMIT - 20 for parked vehicles). Default value is 300.
+VEH_MEM_SIZE -> The memory budget for vehicles in MB. Raise this value when using modded vehicles. (GTA V Enhanced only)
+PED_LIMIT -> The size of the ped pool. On GTA V Enhanced, you do NOT need to modify the limit in gameconfig.xml as it is overwritten by this parameter (up to 340), and max spawned peds is set to PED_LIMIT - 10. On GTA V Legacy, this unlocks the active ped cap to 1000 (you still need a custom gameconfig.xml for pool sizes on Legacy). Default value is 256.
+VEH_LIMIT -> The size of the vehicle pool. You MUST set the vehicle pool values in gameconfig.xml ("Vehicle" and "CVehicle" pools) to match VEH_LIMIT. On GTA V Enhanced, max ambient vehicles is set to VEH_LIMIT - 10 and max parked vehicles to VEH_LIMIT - 20. On GTA V Legacy, this unlocks the active ambient and parked vehicle caps to 1000. Default value is 300.
 
 SKIP_PEDS_PATHFIND_PASS -> Skips the pathfinding logic for peds. Setting this to 1 will freeze all peds (they will stay in place), while also freeing a lot of CPU resources (higher FPS). Useful for benchmarking when using a lot of peds. Values can be 0 or 1. Default is 0.
