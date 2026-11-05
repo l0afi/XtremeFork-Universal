@@ -8,7 +8,7 @@
 [![Enhanced](https://img.shields.io/badge/GTA%20V%20Enhanced-v1.0.811.8%E2%80%931158.13+-2ea44f?style=for-the-badge)](#)
 [![Legacy](https://img.shields.io/badge/GTA%20V%20Legacy-v1.0.3095.0%E2%80%933889.0+-1f6feb?style=for-the-badge)](#)
 [![Runtime](https://img.shields.io/badge/API-ScriptHookV%20(.asi)-FF6F00?style=for-the-badge)](#)
-[![Releases](https://img.shields.io/github/v/release/l0afi/XtremeFork-Universal?style=for-the-badge&color=8A2BE2)](https://github.com/l0afi/XtremeFork-Universal/releases)
+[![Experimental Build](https://img.shields.io/github/v/release/l0afi/XtremeFork-Universal?include_prereleases&label=Experimental%20Build&style=for-the-badge&color=8A2BE2)](https://github.com/l0afi/XtremeFork-Universal/releases/tag/experimental)
 
 One universal `.asi` plugin for both **GTA V Enhanced** (`GTA5_Enhanced.exe`) and **GTA V Legacy** (`GTA5.exe`).  
 Boost pedestrian and traffic density, expand memory heaps beyond 4 GB, and raise entity pool limits with a single config file.
@@ -59,7 +59,10 @@ The configuration loader and logger were rewritten to avoid large memory buffers
 
 ## 📦 Installation
 
-Pre-compiled, ready-to-use releases are available under the **[Releases Tab](https://github.com/l0afi/XtremeFork-Universal/releases)**.
+Pre-compiled, ready-to-use binaries are automatically published on every build:
+
+* 🧪 **Latest Experimental Build:** Download the latest rolling pre-release [`XtremeFork-Universal-Windows-x64.zip`](https://github.com/l0afi/XtremeFork-Universal/releases/tag/experimental) from the **[Experimental Release Tag](https://github.com/l0afi/XtremeFork-Universal/releases/tag/experimental)** (showing the latest build commit hash).
+* 🏷️ **Stable / Tagged Releases:** Available under the **[Releases Tab](https://github.com/l0afi/XtremeFork-Universal/releases)**.
 
 1. Make sure you have **[ScriptHookV](http://www.dev-c.com/gtav/scripthookv/)** (`ScriptHookV.dll` and an ASI Loader such as `dinput8.dll`) installed in your main GTA V folder.
 2. Download the latest release package (`XtremeFork-Universal-Windows-x64.zip`) from **[Releases](https://github.com/l0afi/XtremeFork-Universal/releases)**.
