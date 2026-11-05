@@ -1,25 +1,33 @@
 name: Build & Release (Windows x64)
+
 on:
   push:
     branches: [ "main" ]
     tags: [ "v*.*.*" ]
   pull_request:
     branches: [ "main" ]
+
 jobs:
   build:
-    name: Build XtremeFork-Universal.asi (Windows MSVC)
+    name: Build & Release
     runs-on: windows-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
       - name: Configure CMake
         run: >
           cmake -B ${{ github.workspace }}/build
           -G "Visual Studio 17 2022"
           -A x64
           -DCMAKE_BUILD_TYPE=Release
+
       - name: Build Plugin (.asi)
         run: cmake --build ${{ github.workspace }}/build --config Release
+
       - name: Verify Built Binary
         shell: pwsh
         run: |
@@ -29,6 +37,7 @@ jobs:
             exit 1
           }
           Write-Host "Found binary: $($asi.FullName)"
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -38,10 +47,25 @@ jobs:
             ${{ github.workspace }}/dist/Put in main folder/XtremeTool.ini
             ${{ github.workspace }}/dist/ReadMe_Install.txt
             ${{ github.workspace }}/dist/Documentation_Config.txt
-  release:
-    name: Publish GitHub Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: windows-latest
-    permissions:
-      contents: write
+
+      - name: Package Release ZIP
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "dist-package" -Force
+          $asi = Get-ChildItem -Path "${{ github.workspace }}/build" -Filter "*.asi" -Recurse | Select-Object -First 1
+          Copy-Item $asi.FullName -Destination "dist-package/$($asi.Name)"
+          Copy-Item "dist/Put in main folder/XtremeTool.ini" -Destination "dist-package/XtremeTool.ini"
+          Copy-Item "dist/ReadMe_Install.txt" -Destination "dist-package/ReadMe_Install.txt"
+          Copy-Item "dist/Documentation_Config.txt" -Destination "dist-package/Documentation_Config.txt"
+          Copy-Item "RELEASE_NOTES.md" -Destination "dist-package/RELEASE_NOTES.md"
+          Compress-Archive -Path "dist-package/*" -DestinationPath "XtremeFork-Universal-Windows-x64.zip"
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: XtremeFork-Universal-Windows-x64.zip
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: true
