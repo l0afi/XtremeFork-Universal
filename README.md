@@ -25,7 +25,7 @@ Boost pedestrian and traffic density, expand memory heaps beyond 4 GB, and raise
 
 > [!IMPORTANT]
 > ### 🤖 AI Disclaimer
-> **XtremeFork-Universal**—including its C++20 source code, universal edition detection, stability fixes, automated CI build pipeline, and documentation—was generated, reverse-engineered, and reconstructed with the assistance of an **AI coding agent (Antigravity)** based on the original *XtremeTool Enhanced v1.2* and *XtremeTool Legacy v1.1* releases by **Xtreme** on [GTA5-Mods.com](https://www.gta5-mods.com/misc/xtremetool-enhanced). Always back up your game folder before installing memory-patching mods.
+> **XtremeFork-Universal** is developed and maintained with the pair-programming assistance of an **AI coding assistant (Antigravity)**. While reverse-engineering, C++20 memory patching, edition detection, and workflow setups were written and refined collaboratively with AI assistance, all code is based on the original *XtremeTool Enhanced v1.2* and *XtremeTool Legacy v1.1* releases by **Xtreme** on [GTA5-Mods.com](https://www.gta5-mods.com/misc/xtremetool-enhanced). Always back up your game folder before installing memory-patching mods.
 
 ---
 

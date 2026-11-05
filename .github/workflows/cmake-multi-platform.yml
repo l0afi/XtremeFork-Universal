@@ -85,9 +85,12 @@ jobs:
           } else {
             $tag = "experimental"
             $shortSha = "${{ github.sha }}".Substring(0, 7)
+            $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'")
             $name = "Experimental Build ($shortSha)"
             $lines = @(
               "## ⚠️ Experimental Rolling Build",
+              "",
+              "**Built on:** $timestamp",
               "",
               "Automated experimental build from commit [${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}).",
               "",
