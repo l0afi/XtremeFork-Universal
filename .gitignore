@@ -18,5 +18,5 @@ dist/
 *.VC.opendb
 
 # Notes
-AGENTS.md
-RELEASE_NOTES.md
+./AGENTS.md
+./RELEASE_NOTES.md
