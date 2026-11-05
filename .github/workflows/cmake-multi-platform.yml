@@ -2,10 +2,10 @@ name: Build & Release (Windows x64)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "development" ]
     tags: [ "v*.*.*" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "development" ]
 
 jobs:
   build:
@@ -91,7 +91,7 @@ jobs:
               "",
               "Automated experimental build from commit [${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}).",
               "",
-              "This build is automatically re-compiled and published on every commit to `main`.",
+              "This build is automatically re-compiled and published on every commit to `development`.",
               "",
               "### Assets Included:",
               "- **`XtremeFork-Universal-Windows-x64.zip`**: Contains the latest compiled `XtremeTool.asi`, default `XtremeTool.ini`, and reference documentation."
