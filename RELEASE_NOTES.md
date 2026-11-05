@@ -37,7 +37,7 @@ Initial alpha release of **XtremeFork-Universal** — an open-source, modern C++
 ## 🚀 Installation
 
 1. Ensure **[ScriptHookV](http://www.dev-c.com/gtav/scripthookv/)** (`ScriptHookV.dll` + ASI loader) is installed in your main game directory.
-2. Copy `XtremeTool.asi` and `XtremeTool.ini` from the release package (or `dist/Put in main folder/`) into your main GTA V folder:
+2. Copy `XtremeTool.asi` and `XtremeTool.ini` from the downloaded release `.zip` into your main GTA V folder:
    - For **GTA V Enhanced**: folder containing `GTA5_Enhanced.exe`.
    - For **GTA V Legacy**: folder containing `GTA5.exe`.
 3. Launch GTA V. Check `XtremeTool.log` in your game folder to verify successful initialization.
