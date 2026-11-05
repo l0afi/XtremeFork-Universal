@@ -1,51 +1,49 @@
-# Release v1.0.0-alpha: XtremeFork-Universal
+# Release v1.0.0-beta.1: XtremeFork-Universal
 
-Initial alpha release of **XtremeFork-Universal** — an open-source, modern C++20 fork and reconstruction of *XtremeTool* supporting both **GTA V Enhanced** (`GTA5_Enhanced.exe`, builds `v1.0.811.8` – `v1.0.1158.13+`) and **GTA V Legacy** (`GTA5.exe`, builds `v1.0.3095.0` – `v1.0.3889.0+`) through a single, unified `.asi` binary.
+Welcome to the first beta release of **XtremeFork-Universal**!
 
----
-
-## 🌟 What's New
-
-### 🌍 Universal Architecture
-- **Automatic Edition Detection**: Detects whether the game process is running `GTA5_Enhanced.exe` or `GTA5.exe` at startup, with a fallback byte-pattern scan if the executable is renamed.
-- **Unified Configuration**: Use one single `XtremeTool.ini` config file regardless of which GTA V edition you are playing.
-
-### 🚗 Density & Population Controls
-- **Adjustable Pedestrian Spawn Rates**: Custom multipliers for both ambient walking pedestrians and scenario peds.
-- **Adjustable Vehicle Spawn Rates**: Custom multipliers for active traffic vehicles and parked roadside/lot vehicles.
-- **Expanded Entity Limits**:
-  - Raise max pedestrian pools and active spawned limits (`PED_LIMIT`).
-  - Raise max ambient and parked vehicle limits (`VEH_LIMIT`).
-- **Benchmarking Mode**: Option to toggle `SKIP_PEDS_PATHFIND_PASS` to bypass pedestrian pathfinding logic for high-entity FPS benchmarking.
-
-### 🧠 64-Bit Memory Allocator & Stability Fixes
-- **Break the 2 GB / 4 GB Barrier**: Safely enables 64-bit allocation sizes for the Main Heap (`HEAP_SIZE`), Pool Heap (`POOL_SIZE`), and Resource Heap (`RESOURCE_SIZE`) on both Enhanced and Legacy.
-- **Safe Trampoline Allocator**: Fixes a critical bug from original legacy releases where 64-bit jumps overwrote surrounding game code in `.text`. Trampolines and pointer slots are now safely allocated in dedicated memory pages within RIP-relative reach.
-- **64-Bit Math Overflow Protection**: Arithmetic on heap sizes now uses 64-bit integers to prevent truncation and negative allocation sizes when configuring heaps $\ge$ 4096 MB.
-- **Memory Protection Wrap**: All patch writes safely acquire `PAGE_EXECUTE_READWRITE` permissions before modifying memory.
+I created this project to unite and modernize the original *XtremeTool Enhanced* and *XtremeTool Legacy* mods by Xtreme into a single, unified C++20 `.asi` plugin. Whether you are running **GTA V Enhanced** (`GTA5_Enhanced.exe`) or **GTA V Legacy** (`GTA5.exe`), this single build automatically detects your game edition at startup and applies the right memory patches, density multipliers, and pool caps without needing separate binaries.
 
 ---
 
-## 📦 Included Assets & Files
+## 🌟 What I've Built & Included in this Release
 
-- `XtremeTool.asi` — Pre-compiled Windows x64 binary (zero external runtime dependencies).
-- `XtremeTool.ini` — Default configuration template.
+### 🌍 One Plugin for Both Game Editions
+- **Automatic Edition Detection**: You no longer need to worry about which edition of XtremeTool to download. The plugin identifies whether the game process is running `GTA5_Enhanced.exe` (builds `1.0.811.8` – `1.0.1158.13+`) or `GTA5.exe` (builds `1.0.3095.0` – `1.0.3889.0+`) at boot, with a fallback pattern scan if your executable is renamed.
+- **Unified Config**: Both editions now share the exact same `XtremeTool.ini` file.
+
+### 🚗 High-Density Population & Spawn Multipliers
+- **Independent Multipliers**: You can independently dial in spawn rates for walking ambient pedestrians, scenario peds doing activities, active moving traffic, and parked cars.
+- **Expanded Limits**: I increased the active pedestrian and vehicle caps so the game can spawn larger crowds without choking entity limits.
+- **Benchmarking Mode**: If you want to benchmark pure rendering performance without CPU pathfinding overhead, set `SKIP_PEDS_PATHFIND_PASS = 1` to freeze pedestrian navigation logic.
+
+### 🧠 64-Bit Memory Unlocker & Stability Fixes
+- **Broke the 2 GB / 4 GB Heap Limit**: The plugin unlocks 64-bit allocation sizes for the Main Heap, Pool Heap, and Resource Heap on both Enhanced and Legacy versions.
+- **Fixed the Legacy 64-Bit Trampoline Crash**: In older versions of the legacy mod, 64-bit heap hooks were disabled because the jump trampolines wrote pointers into surrounding game `.text`, causing immediate crashes. I implemented a safe near-memory page allocator that keeps all hook pointers in isolated memory.
+- **Fixed Arithmetic Overflows on Large Heaps**: I converted all heap calculation arithmetic to full 64-bit integers, preventing memory overflows and crashes when configuring heaps of 4096 MB (4 GB) or larger.
+- **Memory Protection Wrappers**: Every memory write is now wrapped in proper `VirtualProtect` calls across the exact modified byte lengths.
+
+---
+
+## 📦 What's Inside the Download (`XtremeFork-Universal-Windows-x64.zip`)
+
+- `XtremeTool.asi` — The pre-compiled Windows x64 plugin (built with MSVC C++20, statically linked with zero extra DLL dependencies).
+- `XtremeTool.ini` — Default configuration template ready for your tweaks.
 - `ReadMe_Install.txt` & `Documentation_Config.txt` — Quick-start and config documentation.
 
 ---
 
-## 🚀 Installation
+## 🚀 How to Install
 
-1. Ensure **[ScriptHookV](http://www.dev-c.com/gtav/scripthookv/)** (`ScriptHookV.dll` + ASI loader) is installed in your main game directory.
-2. Copy `XtremeTool.asi` and `XtremeTool.ini` from the downloaded release `.zip` into your main GTA V folder:
-   - For **GTA V Enhanced**: folder containing `GTA5_Enhanced.exe`.
-   - For **GTA V Legacy**: folder containing `GTA5.exe`.
-3. Launch GTA V. Check `XtremeTool.log` in your game folder to verify successful initialization.
+1. Make sure you have **[ScriptHookV](http://www.dev-c.com/gtav/scripthookv/)** (`ScriptHookV.dll` and an ASI loader like `dinput8.dll`) installed in your GTA V root directory.
+2. Download `XtremeFork-Universal-Windows-x64.zip` from the assets section below.
+3. Extract `XtremeTool.asi` and `XtremeTool.ini` directly into your main GTA V directory (where `GTA5_Enhanced.exe` or `GTA5.exe` lives).
+4. Launch the game! You can check `XtremeTool.log` in your game directory to see which edition was detected and verify that your custom settings loaded cleanly.
 
 ---
 
-## ⚠️ Notes & Known Issues
+## ⚠️ Notes & Feedback
 
-- **Alpha Release**: Please back up your game directory and save files before installing.
-- **Vehicle Pool in `gameconfig.xml`**: When setting `VEH_LIMIT` higher than vanilla, ensure your `gameconfig.xml` vehicle pool sizes match your configured limit.
-- **AI-Assisted Reconstruction**: **XtremeFork-Universal** was reconstructed and reverse-engineered with the assistance of an AI coding agent based on the original work by **Xtreme**.
+- **Beta Status**: While I have verified stability and addressed known memory corruptions from earlier releases, please make sure you back up your game files and saves before loading heavy modlists.
+- **Vehicle Pool Warning**: If you set `VEH_LIMIT` higher than vanilla, remember to match the pool size in your `gameconfig.xml` (`Vehicle` and `CVehicle` pools) so the engine reserves enough space.
+- **Feedback**: If you run into any issues, crashes, or pattern-match errors on newer game updates, please open an issue on the repository and include your `XtremeTool.log`!
