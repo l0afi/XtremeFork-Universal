@@ -8,7 +8,7 @@
 [![Enhanced](https://img.shields.io/badge/GTA%20V%20Enhanced-v1.0.811.8%E2%80%931158.13+-2ea44f?style=for-the-badge)](#)
 [![Legacy](https://img.shields.io/badge/GTA%20V%20Legacy-v1.0.3095.0%E2%80%933889.0+-1f6feb?style=for-the-badge)](#)
 [![Runtime](https://img.shields.io/badge/API-ScriptHookV%20(.asi)-FF6F00?style=for-the-badge)](#)
-[![Experimental Build](https://img.shields.io/github/v/release/l0afi/XtremeFork-Universal?include_prereleases&label=Experimental%20Build&style=for-the-badge&color=8A2BE2)](https://github.com/l0afi/XtremeFork-Universal/releases/tag/experimental)
+[![Experimental Build](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fl0afi%2FXtremeFork-Universal%2Freleases%2Ftags%2Fexperimental&query=%24.name&label=&color=8A2BE2&style=for-the-badge)](https://github.com/l0afi/XtremeFork-Universal/releases/tag/experimental)
 
 One universal `.asi` plugin for both **GTA V Enhanced** (`GTA5_Enhanced.exe`) and **GTA V Legacy** (`GTA5.exe`).  
 Boost pedestrian and traffic density, expand memory heaps beyond 4 GB, and raise entity pool limits with a single config file.
