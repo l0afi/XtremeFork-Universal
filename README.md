@@ -8,6 +8,7 @@
 [![Enhanced](https://img.shields.io/badge/GTA%20V%20Enhanced-v1.0.811.8%E2%80%931158.13+-2ea44f?style=for-the-badge)](#)
 [![Legacy](https://img.shields.io/badge/GTA%20V%20Legacy-v1.0.3095.0%E2%80%933889.0+-1f6feb?style=for-the-badge)](#)
 [![Runtime](https://img.shields.io/badge/API-ScriptHookV%20(.asi)-FF6F00?style=for-the-badge)](#)
+[![Releases](https://img.shields.io/github/v/release/l0afi/XtremeFork-Universal?style=for-the-badge&color=8A2BE2)](https://github.com/l0afi/XtremeFork-Universal/releases)
 
 One universal `.asi` plugin for both **GTA V Enhanced** (`GTA5_Enhanced.exe`) and **GTA V Legacy** (`GTA5.exe`).  
 Boost pedestrian and traffic density, expand memory heaps beyond 4 GB, and raise entity pool limits with a single config file.
@@ -24,7 +25,7 @@ Boost pedestrian and traffic density, expand memory heaps beyond 4 GB, and raise
 
 > [!IMPORTANT]
 > ### 🤖 AI Disclaimer
-> **XtremeFork-Universal**—including its C++20 source code, universal edition detection, stability fixes, pre-built `.asi` binary, and documentation—was generated, reverse-engineered, and reconstructed with the assistance of an **AI coding agent (Antigravity)** based on the original *XtremeTool Enhanced v1.2* and *XtremeTool Legacy v1.1* releases by **Xtreme** on [GTA5-Mods.com](https://www.gta5-mods.com/misc/xtremetool-enhanced). Always back up your game folder before installing memory-patching mods.
+> **XtremeFork-Universal**—including its C++20 source code, universal edition detection, stability fixes, automated CI build pipeline, and documentation—was generated, reverse-engineered, and reconstructed with the assistance of an **AI coding agent (Antigravity)** based on the original *XtremeTool Enhanced v1.2* and *XtremeTool Legacy v1.1* releases by **Xtreme** on [GTA5-Mods.com](https://www.gta5-mods.com/misc/xtremetool-enhanced). Always back up your game folder before installing memory-patching mods.
 
 ---
 
@@ -33,7 +34,7 @@ Boost pedestrian and traffic density, expand memory heaps beyond 4 GB, and raise
 * 🌍 **Universal Edition Support** — Automatically detects whether you are launching **GTA V Enhanced** (`GTA5_Enhanced.exe`, builds `1.0.811.8` – `1.0.1158.13+`) or **GTA V Legacy** (`GTA5.exe`, builds `1.0.3095.0` – `1.0.3889.0+`) and applies the right patches on the fly.
 * 🚶 **Custom Crowd & Traffic Multipliers** — Independently control how quickly walking pedestrians, scenario pedestrians, moving traffic, and parked cars spawn around you.
 * 🧠 **64-Bit Memory Unlocker** — Break past the game's built-in 2 GB / 4 GB memory limits for the Main Heap, Pool Heap, and Resource Heap so heavy modlists don't crash with out-of-memory errors.
-* 📈 **Higher Pedestrian & Vehicle Caps** — Raise active pedestrian and vehicle limits directly from [`XtremeTool.ini`](dist/Put%20in%20main%20folder/XtremeTool.ini).
+* 📈 **Higher Pedestrian & Vehicle Caps** — Raise active pedestrian and vehicle limits directly from `XtremeTool.ini`.
 * ⚡ **CPU Benchmark Mode** — Optionally freeze pedestrian pathfinding (`SKIP_PEDS_PATHFIND_PASS`) to test maximum crowd rendering performance without AI CPU bottlenecks.
 
 ---
@@ -58,20 +59,21 @@ The configuration loader and logger were rewritten to avoid large memory buffers
 
 ## 📦 Installation
 
-A pre-compiled **`XtremeTool.asi`** binary is ready to use in the [`dist/Put in main folder/`](dist/Put%20in%20main%20folder/) directory.
+Pre-compiled, ready-to-use releases are available under the **[Releases Tab](https://github.com/l0afi/XtremeFork-Universal/releases)**.
 
 1. Make sure you have **[ScriptHookV](http://www.dev-c.com/gtav/scripthookv/)** (`ScriptHookV.dll` and an ASI Loader such as `dinput8.dll`) installed in your main GTA V folder.
-2. Open [`dist/Put in main folder/`](dist/Put%20in%20main%20folder/) and copy both files into your main GTA V folder (next to `GTA5_Enhanced.exe` or `GTA5.exe`):
-   * [`XtremeTool.asi`](dist/Put%20in%20main%20folder/XtremeTool.asi)
-   * [`XtremeTool.ini`](dist/Put%20in%20main%20folder/XtremeTool.ini)
-3. *(Optional)* Open `XtremeTool.ini` in any text editor to customize your traffic multipliers and memory budgets.
-4. Launch the game! A `XtremeTool.log` file will be created in your game folder confirming which edition was detected and which settings were applied.
+2. Download the latest release package (`XtremeFork-Universal-Windows-x64.zip`) from **[Releases](https://github.com/l0afi/XtremeFork-Universal/releases)**.
+3. Extract the contents directly into your main GTA V folder (where `GTA5_Enhanced.exe` or `GTA5.exe` is located):
+   * `XtremeTool.asi`
+   * `XtremeTool.ini`
+4. *(Optional)* Open `XtremeTool.ini` in any text editor to customize your traffic multipliers and memory budgets.
+5. Launch the game! A `XtremeTool.log` file will be created in your game directory confirming which edition was detected and which settings were applied.
 
 ---
 
 ## ⚙️ Configuration (`XtremeTool.ini`)
 
-All settings live in [`XtremeTool.ini`](dist/Put%20in%20main%20folder/XtremeTool.ini):
+All settings are configured inside `XtremeTool.ini`:
 
 ### 🌆 Spawn Multipliers
 > Controls **how fast** peds and vehicles spawn around the player. Combine with `PED_LIMIT` and `VEH_LIMIT` to increase the total number of active entities on screen.
@@ -111,7 +113,7 @@ All settings live in [`XtremeTool.ini`](dist/Put%20in%20main%20folder/XtremeTool
 
 ## 🔨 Building from Source
 
-If you want to modify the code and compile your own `XtremeTool.asi`:
+If you want to modify the code and compile your own binary:
 
 ### Option A: Windows (Visual Studio / CMake)
 ```powershell
@@ -123,7 +125,7 @@ cmake --build build --config Release
 ```bash
 zig c++ -target x86_64-windows-gnu -shared -std=c++20 -O2 -static -s \
   -Iinc -Isrc src/dllmain.cpp src/Config.cpp src/Logger.cpp src/Pattern.cpp src/Game.cpp \
-  -lpsapi -o "dist/Put in main folder/XtremeTool.asi"
+  -lpsapi -o "build/XtremeTool.asi"
 ```
 
 > 💡 **For Developers & Reverse Engineers:** Deep technical documentation—including supported GTA V build numbers, assembly patches, memory signatures, VMA maps, and architecture notes for both Enhanced and Legacy—is located in [`AGENTS.md`](AGENTS.md).

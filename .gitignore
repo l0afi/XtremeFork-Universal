@@ -1,22 +1,40 @@
-# macOS
-.DS_Store
+# Compiled Binaries & Build Outputs
+*.asi
+*.dll
+*.exe
+*.lib
+*.exp
+*.pdb
+*.ilk
 
 # Build directories
 build/
+bin/
 out/
 x64/
+x86/
 Debug/
 Release/
-dist/
+dist-package/
+*.zip
 
-# Visual Studio
+# Visual Studio / MSVC
 .vs/
 *.user
 *.suo
 *.ipch
 *.VC.db
 *.VC.opendb
+*.log
+*.tlog
+*.obj
 
-# Notes
-/AGENTS.md
-/RELEASE_NOTES.md
+# Clang / CMake Temporary Files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+Desktop.ini
