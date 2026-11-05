@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup MSVC Developer Environment
         uses: ilammy/msvc-dev-cmd@v1
@@ -53,7 +55,7 @@ jobs:
             ${{ github.workspace }}/dist/Documentation_Config.txt
 
       - name: Package Release ZIP
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path "dist-package" -Force
@@ -67,11 +69,46 @@ jobs:
           }
           Compress-Archive -Path "dist-package/*" -DestinationPath "XtremeFork-Universal-Windows-x64.zip"
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Prepare Release Metadata
+        id: meta
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          if ("${{ github.ref }}" -like "refs/tags/*") {
+            $tag = "${{ github.ref_name }}"
+            $name = "Release $tag"
+            $body = "Official release $tag."
+            if (Test-Path ".RELEASE_NOTES.md") {
+              $body = Get-Content ".RELEASE_NOTES.md" -Raw
+            }
+          } else {
+            $tag = "experimental"
+            $shortSha = "${{ github.sha }}".Substring(0, 7)
+            $name = "Experimental Build ($shortSha)"
+            $body = @"
+## ⚠️ Experimental Rolling Build
+
+Automated experimental build from commit [${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}).
+
+This build is automatically re-compiled and published on every commit to `main`.
+
+### Assets Included:
+- **`XtremeFork-Universal-Windows-x64.zip`**: Contains the latest compiled `XtremeTool.asi`, default `XtremeTool.ini`, and reference documentation.
+"@
+          }
+
+          # Output variables to GitHub step outputs
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "tag=$tag"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "name=$name"
+          Set-Content -Path "release_body.md" -Value $body
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          body_path: release_body.md
           files: XtremeFork-Universal-Windows-x64.zip
-          body_path: .RELEASE_NOTES.md
           draft: false
           prerelease: true
