@@ -77,30 +77,30 @@ jobs:
           if ("${{ github.ref }}" -like "refs/tags/*") {
             $tag = "${{ github.ref_name }}"
             $name = "Release $tag"
-            $body = "Official release $tag."
             if (Test-Path ".RELEASE_NOTES.md") {
-              $body = Get-Content ".RELEASE_NOTES.md" -Raw
+              Copy-Item ".RELEASE_NOTES.md" "release_body.md"
+            } else {
+              Set-Content -Path "release_body.md" -Value "Official release $tag."
             }
           } else {
             $tag = "experimental"
             $shortSha = "${{ github.sha }}".Substring(0, 7)
             $name = "Experimental Build ($shortSha)"
-            $body = @"
-## ⚠️ Experimental Rolling Build
-
-Automated experimental build from commit [${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}).
-
-This build is automatically re-compiled and published on every commit to `main`.
-
-### Assets Included:
-- **`XtremeFork-Universal-Windows-x64.zip`**: Contains the latest compiled `XtremeTool.asi`, default `XtremeTool.ini`, and reference documentation.
-"@
+            $lines = @(
+              "## ⚠️ Experimental Rolling Build",
+              "",
+              "Automated experimental build from commit [${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}).",
+              "",
+              "This build is automatically re-compiled and published on every commit to `main`.",
+              "",
+              "### Assets Included:",
+              "- **`XtremeFork-Universal-Windows-x64.zip`**: Contains the latest compiled `XtremeTool.asi`, default `XtremeTool.ini`, and reference documentation."
+            )
+            Set-Content -Path "release_body.md" -Value ($lines -join "`n")
           }
 
-          # Output variables to GitHub step outputs
           Add-Content -Path $env:GITHUB_OUTPUT -Value "tag=$tag"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "name=$name"
-          Set-Content -Path "release_body.md" -Value $body
 
       - name: Publish GitHub Release
         if: github.event_name == 'push'
