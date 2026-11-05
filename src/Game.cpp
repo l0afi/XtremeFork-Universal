@@ -1,0 +1,672 @@
+#include "Game.h"
+#include "Config.h"
+#include "Logger.h"
+#include "Pattern.h"
+
+#include <windows.h>
+#include <psapi.h>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+
+namespace Game {
+
+bool IsEnhancedEdition() {
+    char moduleName[MAX_PATH] = {};
+    HMODULE hModule = GetModuleHandleW(nullptr);
+    if (GetModuleBaseNameA(GetCurrentProcess(), hModule, moduleName, sizeof(moduleName)) == 0) {
+        return false;
+    }
+    return std::strcmp(moduleName, kTargetExecutable) == 0;
+}
+
+// ---------------------------------------------------------------------------
+// 1. Main Heap Size (32-bit & 64-bit)
+// Pattern: BA ?? ?? ?? ?? 45 31 C0 41 B1 01 E8 ?? ?? ?? ?? 48 8D 0D
+// Mask:    x????xxxxxxx????xxx
+// ---------------------------------------------------------------------------
+static constexpr const char* kHeapSizePattern =
+    "\xBA\x00\x00\x00\x00\x45\x31\xC0\x41\xB1\x01\xE8\x00\x00\x00\x00\x48\x8D\x0D";
+static constexpr const char* kHeapSizeMask = "x????xxxxxxx????xxx";
+
+bool PatchMainHeapSize32(uint32_t heapBytes) {
+    uintptr_t match = Memory::FindPattern(kHeapSizePattern, kHeapSizeMask);
+    if (!match) {
+        Logger::Log("Failed to find heap size pattern");
+        return false;
+    }
+
+    uintptr_t immAddr = match + 1;
+    Logger::Log("Overwriting heap size - OK");
+    Memory::WriteU32(immAddr, heapBytes);
+    return true;
+}
+
+bool PatchMainHeapSize64(uint64_t heapBytes) {
+    uintptr_t match = Memory::FindPattern(kHeapSizePattern, kHeapSizeMask);
+    if (!match) {
+        Logger::Log("Failed to find heap size pattern");
+        return false;
+    }
+
+    Logger::Log("Overwriting heap size - OK");
+
+    auto* trampoline = static_cast<uint8_t*>(std::malloc(0x1000));
+    if (!trampoline) {
+        return false;
+    }
+
+    DWORD oldProtect = 0;
+    VirtualProtect(trampoline, 0x1000, PAGE_EXECUTE_READWRITE, &oldProtect);
+
+    // Store pointer to trampoline at [match - 0xFFF]
+    uintptr_t ptrSlot = match - 0xFFF;
+    uint64_t trampAddr = reinterpret_cast<uint64_t>(trampoline);
+    Memory::PatchBytes(ptrSlot, &trampAddr, sizeof(uint64_t));
+
+    // Write indirect jump at match: FF 25 FB EF FF FF -> jmp qword ptr [rip - 0x1005]
+    const uint8_t jmpStub[6] = { 0xFF, 0x25, 0xFB, 0xEF, 0xFF, 0xFF };
+    Memory::PatchBytes(match, jmpStub, sizeof(jmpStub));
+
+    // Trampoline payload:
+    // +0x00: 48 BA <8-byte heapBytes>   ; movabs rdx, heapBytes
+    // +0x0A: 45 31 C0                   ; xor r8d, r8d
+    // +0x0D: 49 B9 <8-byte (match + 8)> ; movabs r9, match + 8
+    // +0x17: 41 FF E1                   ; jmp r9
+    uint8_t code[26];
+    code[0] = 0x48;
+    code[1] = 0xBA;
+    std::memcpy(&code[2], &heapBytes, sizeof(uint64_t));
+    code[10] = 0x45;
+    code[11] = 0x31;
+    code[12] = 0xC0;
+    code[13] = 0x49;
+    code[14] = 0xB9;
+    uint64_t retAddr = match + 8;
+    std::memcpy(&code[15], &retAddr, sizeof(uint64_t));
+    code[23] = 0x41;
+    code[24] = 0xFF;
+    code[25] = 0xE1;
+
+    Memory::PatchBytes(reinterpret_cast<uintptr_t>(trampoline), code, sizeof(code));
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 2. Pool Heap Size (32-bit & 64-bit)
+// Pattern: 48 ?? ?? ?? ?? ?? ?? 48 ?? ?? ?? ?? ?? ?? 41 B8 00 00 01 00 41 B9 ?? ?? ?? ?? E8
+// Mask:    x??????x??????xxxxxxxx????x
+// ---------------------------------------------------------------------------
+static constexpr const char* kPoolSizePattern =
+    "\x48\x00\x00\x00\x00\x00\x00\x48\x00\x00\x00\x00\x00\x00\x41\xB8\x00\x00\x01\x00\x41\xB9\x00\x00\x00\x00\xE8";
+static constexpr const char* kPoolSizeMask = "x??????x??????xxxxxxxx????x";
+
+bool PatchPoolHeapSize32(uint32_t poolBytes) {
+    uintptr_t match = Memory::FindPattern(kPoolSizePattern, kPoolSizeMask);
+    if (!match) {
+        Logger::Log("Failed to find pool size pattern");
+        return false;
+    }
+
+    uintptr_t immAddr = match + 0x16;
+    Logger::Log("Overwriting pool size - OK");
+    Memory::WriteU32(immAddr, poolBytes);
+    return true;
+}
+
+bool PatchPoolHeapSize64(uint64_t poolBytes) {
+    uintptr_t match = Memory::FindPattern(kPoolSizePattern, kPoolSizeMask);
+    if (!match) {
+        Logger::Log("Failed to find pool size pattern");
+        return false;
+    }
+
+    uintptr_t baseAnchor = match + 0x10;
+    Logger::Log("Overwriting pool size - OK");
+
+    auto* trampoline = static_cast<uint8_t*>(std::malloc(0x1000));
+    if (!trampoline) {
+        return false;
+    }
+
+    DWORD oldProtect = 0;
+    VirtualProtect(trampoline, 0x1000, PAGE_EXECUTE_READWRITE, &oldProtect);
+
+    // Store pointer to trampoline at [baseAnchor - 0xFFB]
+    uintptr_t ptrSlot = baseAnchor - 0xFFB;
+    uint64_t trampAddr = reinterpret_cast<uint64_t>(trampoline);
+    Memory::PatchBytes(ptrSlot, &trampAddr, sizeof(uint64_t));
+
+    // Write indirect jump at baseAnchor + 4 (match + 0x14): FF 25 FB EF FF FF
+    const uint8_t jmpStub[6] = { 0xFF, 0x25, 0xFB, 0xEF, 0xFF, 0xFF };
+    Memory::PatchBytes(baseAnchor + 4, jmpStub, sizeof(jmpStub));
+
+    // Trampoline payload:
+    // +0x00: 49 B9 <8-byte poolBytes>          ; movabs r9, poolBytes
+    // +0x0A: 48 B8 <8-byte (baseAnchor + 0xA)> ; movabs rax, baseAnchor + 0xA
+    // +0x14: FF E0                             ; jmp rax
+    uint8_t code[22];
+    code[0] = 0x49;
+    code[1] = 0xB9;
+    std::memcpy(&code[2], &poolBytes, sizeof(uint64_t));
+    code[10] = 0x48;
+    code[11] = 0xB8;
+    uint64_t retAddr = baseAnchor + 0x0A;
+    std::memcpy(&code[12], &retAddr, sizeof(uint64_t));
+    code[20] = 0xFF;
+    code[21] = 0xE0;
+
+    Memory::PatchBytes(reinterpret_cast<uintptr_t>(trampoline), code, sizeof(code));
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 3. Resource Heap Size (32-bit & 64-bit)
+// Pattern: 48 ?? ?? ?? ?? ?? ?? BA 00 20 00 00 41 B8 ?? ?? ?? ??
+// Mask:    x??????xxxxxxxx????
+// ---------------------------------------------------------------------------
+static constexpr const char* kResourceSizePattern =
+    "\x48\x00\x00\x00\x00\x00\x00\xBA\x00\x20\x00\x00\x41\xB8\x00\x00\x00\x00";
+static constexpr const char* kResourceSizeMask = "x??????xxxxxxxx????";
+
+bool PatchResourceHeapSize32(uint32_t resourceBytes) {
+    uintptr_t match = Memory::FindPattern(kResourceSizePattern, kResourceSizeMask);
+    if (!match) {
+        Logger::Log("Failed to find resource size pattern");
+        return false;
+    }
+
+    uintptr_t immAddr = match + 0x0E;
+    Logger::Log("Overwriting resource size - OK");
+    Memory::WriteU32(immAddr, resourceBytes);
+    return true;
+}
+
+bool PatchResourceHeapSize64(uint64_t resourceBytes) {
+    uintptr_t match = Memory::FindPattern(kResourceSizePattern, kResourceSizeMask);
+    if (!match) {
+        Logger::Log("Failed to find resource size pattern");
+        return false;
+    }
+
+    uintptr_t baseAnchor = match + 0x08;
+    Logger::Log("Overwriting resource size - OK");
+
+    auto* trampoline = static_cast<uint8_t*>(std::malloc(0x1000));
+    if (!trampoline) {
+        return false;
+    }
+
+    DWORD oldProtect = 0;
+    VirtualProtect(trampoline, 0x1000, PAGE_EXECUTE_READWRITE, &oldProtect);
+
+    // Store pointer to trampoline at [baseAnchor - 0xFFB]
+    uintptr_t ptrSlot = baseAnchor - 0xFFB;
+    uint64_t trampAddr = reinterpret_cast<uint64_t>(trampoline);
+    Memory::PatchBytes(ptrSlot, &trampAddr, sizeof(uint64_t));
+
+    // Write indirect jump at baseAnchor + 4 (match + 0x0C): FF 25 FB EF FF FF
+    const uint8_t jmpStub[6] = { 0xFF, 0x25, 0xFB, 0xEF, 0xFF, 0xFF };
+    Memory::PatchBytes(baseAnchor + 4, jmpStub, sizeof(jmpStub));
+
+    // Trampoline payload:
+    // +0x00: 49 B8 <8-byte resourceBytes>      ; movabs r8, resourceBytes
+    // +0x0A: 48 B8 <8-byte (baseAnchor + 0xA)> ; movabs rax, baseAnchor + 0xA
+    // +0x14: FF E0                             ; jmp rax
+    uint8_t code[22];
+    code[0] = 0x49;
+    code[1] = 0xB8;
+    std::memcpy(&code[2], &resourceBytes, sizeof(uint64_t));
+    code[10] = 0x48;
+    code[11] = 0xB8;
+    uint64_t retAddr = baseAnchor + 0x0A;
+    std::memcpy(&code[12], &retAddr, sizeof(uint64_t));
+    code[20] = 0xFF;
+    code[21] = 0xE0;
+
+    Memory::PatchBytes(reinterpret_cast<uintptr_t>(trampoline), code, sizeof(code));
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 4. Ped & Vehicle Memory Budget (scans all instances of `05 60 E3 16 00`)
+// ---------------------------------------------------------------------------
+void PatchPedMemoryBudget(uint32_t pedMemBytes) {
+    Memory::ModuleRegion region = Memory::GetMainModuleRegion();
+    if (!region.base || !region.size) {
+        return;
+    }
+
+    static constexpr const char* kBudgetPattern = "\x05\x60\xE3\x16\x00";
+    static constexpr const char* kBudgetMask = "xxxxx";
+
+    uintptr_t cur = region.base;
+    const uintptr_t end = region.base + region.size;
+    int instanceIndex = 1;
+    int foundCount = 0;
+
+    while (cur < end) {
+        uintptr_t match = Memory::FindPatternRange(cur, end, kBudgetPattern, kBudgetMask);
+        if (!match) {
+            break;
+        }
+
+        uintptr_t immAddr = match + 1;
+        cur = match + 1;
+
+        Logger::Log("Overwriting ped memory budget instance " + std::to_string(instanceIndex) + " - OK");
+        Memory::WriteU32(immAddr, pedMemBytes);
+
+        ++foundCount;
+        ++instanceIndex;
+    }
+
+    if (foundCount == 0) {
+        Logger::Log("Failed to find ped memory budget pattern");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Skip Peds Pathfind Pass
+// Pattern: 48 89 44 24 30 89 5C 24 20 48 8D 0D
+// Mask:    xxxxxxxxxxxx
+// ---------------------------------------------------------------------------
+void PatchSkipPedsPathfindPass() {
+    static constexpr const char* kPathfindPattern =
+        "\x48\x89\x44\x24\x30\x89\x5C\x24\x20\x48\x8D\x0D";
+    static constexpr const char* kPathfindMask = "xxxxxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPathfindPattern, kPathfindMask);
+    if (!match) {
+        Logger::Log("Failed to find peds pathfind pass pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting peds pathfind pass - OK");
+    // 31 DB 90 90 90 -> xor ebx, ebx; nop; nop; nop
+    const uint8_t patch[5] = { 0x31, 0xDB, 0x90, 0x90, 0x90 };
+    Memory::PatchBytes(match, patch, sizeof(patch));
+}
+
+// ---------------------------------------------------------------------------
+// 6. Spawn Multipliers (Ped Ambient, Ped Scenario, Veh Ambient, Veh Parked)
+// ---------------------------------------------------------------------------
+void PatchPedSpawnAmbientMultiplier(int32_t multiplier) {
+    static constexpr const char* kPattern = "\x48\x8D\x51\x28\x48\x83\xC1\x2C\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find ped spawn ambient pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting ped spawn ambient rate - OK");
+    Memory::WriteMovRaxImm64Nop3(match, static_cast<int64_t>(multiplier * 100));
+}
+
+void PatchPedSpawnScenarioMultiplier(int32_t multiplier) {
+    static constexpr const char* kPattern = "\x48\x8D\x51\x20\x48\x83\xC1\x24\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find ped spawn scenario pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting ped spawn scenario rate - OK");
+    Memory::WriteMovRaxImm64Nop3(match, static_cast<int64_t>(multiplier * 100));
+}
+
+void PatchVehSpawnAmbientMultiplier(int32_t multiplier) {
+    static constexpr const char* kPattern = "\x48\x8D\x51\x4C\x48\x83\xC1\x50\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find veh spawn ambient pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting veh spawn ambient rate - OK");
+    Memory::WriteMovRaxImm64Nop3(match, static_cast<int64_t>(multiplier * 100));
+}
+
+void PatchVehSpawnParkedMultiplier(int32_t multiplier) {
+    static constexpr const char* kPattern = "\x48\x8D\x51\x58\x48\x83\xC1\x5C\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find veh spawn parked pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting veh spawn parked rate - OK");
+    Memory::WriteMovRaxImm64Nop3(match, static_cast<int64_t>(multiplier * 100));
+}
+
+// ---------------------------------------------------------------------------
+// 7. Max Peds & Max Vehicles Spawn Caps
+// ---------------------------------------------------------------------------
+void PatchMaxPeds(int32_t maxPeds) {
+    static constexpr const char* kPattern = "\x48\x8D\x51\x30\x48\x83\xC1\x34\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find max peds pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting max peds - OK");
+    Memory::WriteMovRaxImm64Nop3(match, static_cast<int64_t>(maxPeds));
+}
+
+void PatchMaxVehAmbient(int32_t maxVehAmbient) {
+    static constexpr const char* kPattern = "\x48\x8D\x51\x68\x48\x83\xC1\x6C\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find max veh ambient pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting max veh ambient - OK");
+    Memory::WriteMovRaxImm64Nop3(match, static_cast<int64_t>(maxVehAmbient));
+}
+
+void PatchMaxVehParked(int32_t maxVehParked) {
+    static constexpr const char* kPattern = "\x48\x8D\x51\x74\x48\x83\xC1\x78\xE8";
+    static constexpr const char* kMask = "xxxxxxxxx";
+
+    uintptr_t match = Memory::FindPattern(kPattern, kMask);
+    if (!match) {
+        Logger::Log("Failed to find max veh parked pattern");
+        return;
+    }
+
+    Logger::Log("Overwriting max veh parked - OK");
+    Memory::WriteMovRaxImm64Nop3(match, static_cast<int64_t>(maxVehParked));
+}
+
+// ---------------------------------------------------------------------------
+// 8. Ped Pool Limit (> 256) Engine Fixes
+// ---------------------------------------------------------------------------
+void PatchPedPoolLimit(int32_t pedLimit) {
+    // Instance 1
+    static constexpr const char* kPattern1 =
+        "\xE8\x00\x00\x00\x00\x48\x89\xF9\xBA\x00\x00\x00\x00\x41\xB8\x01\x00\x00\x00\xE8\x00\x00\x00\x00\x89\xC1\xE8";
+    static constexpr const char* kMask1 = "x????xxxx????xxxxxxx????xx?";
+
+    uintptr_t match1 = Memory::FindPattern(kPattern1, kMask1);
+    if (!match1) {
+        Logger::Log("Failed to find ped limit pattern instance 1");
+        return;
+    }
+
+    uintptr_t target1 = match1 + 0x13;
+    Logger::Log("Overwriting ped limit instance 1 - OK");
+    Memory::WriteMovEaxImm32(target1, static_cast<uint32_t>(pedLimit));
+
+    // Instance 2
+    static constexpr const char* kPattern2 =
+        "\xB9\x30\x00\x00\x00\xE8\x00\x00\x00\x00\x48\x89\xC6\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xE8";
+    static constexpr const char* kMask2 = "xxxxxx????xxx????????????x";
+
+    uintptr_t match2 = Memory::FindPattern(kPattern2, kMask2);
+    if (!match2) {
+        Logger::Log("Failed to find ped limit pattern instance 2");
+        return;
+    }
+
+    uintptr_t target2 = match2 + 0x19;
+    Logger::Log("Overwriting ped limit instance 2 - OK");
+    Memory::WriteMovEaxImm32(target2, static_cast<uint32_t>(pedLimit));
+}
+
+void PatchLimitFixInstance1(int32_t pedLimit) {
+    Memory::ModuleRegion region = Memory::GetMainModuleRegion();
+    if (!region.base || !region.size) {
+        return;
+    }
+
+    const int32_t extraStack = (pedLimit - kDefaultPedPoolLimit) * 16;
+    const uintptr_t end = region.base + region.size;
+
+    static constexpr const char* kPattern1 =
+        "\xB8\x48\x10\x00\x00\xE8\x00\x00\x00\x00\x48\x29\xC4\x48\x8B\x05\x00\x00\x00\x00\x48\x63\x70\x5C";
+    static constexpr const char* kMask1 = "xxxxxx????xxxxxx????xxxx";
+
+    uintptr_t match1 = Memory::FindPatternRange(region.base, end, kPattern1, kMask1);
+    if (!match1) {
+        Logger::Log("Failed to find limit fix instance 1 pattern");
+        return;
+    }
+
+    uintptr_t target1 = match1 + 1;
+    Logger::Log("Overwriting limit fix instance 1 - OK");
+    Memory::AddU32(target1, extraStack);
+
+    // Scan forward from match1 + 1 for `add rsp, 0x1048` (48 81 C4 48 10 00 00)
+    static constexpr const char* kPattern1_1 = "\x48\x81\xC4\x48\x10\x00\x00";
+    static constexpr const char* kMask1_1 = "xxxxxxx";
+
+    uintptr_t match1_1 = Memory::FindPatternRange(match1 + 1, end, kPattern1_1, kMask1_1);
+    if (!match1_1) {
+        Logger::Log("Failed to find limit fix instance 1_1 pattern");
+        return;
+    }
+
+    uintptr_t target1_1 = match1_1 + 3;
+    Logger::Log("Overwriting limit fix instance 1_1 - OK");
+    Memory::AddU32(target1_1, extraStack);
+}
+
+void PatchLimitFixInstance2(int32_t pedLimit) {
+    Memory::ModuleRegion region = Memory::GetMainModuleRegion();
+    if (!region.base || !region.size) {
+        return;
+    }
+
+    const int32_t extra12 = (pedLimit - kDefaultPedPoolLimit) * 12;
+    const int32_t extra8 = (pedLimit - kDefaultPedPoolLimit) * 8;
+    const uintptr_t end = region.base + region.size;
+
+    static constexpr const char* kPattern2 = "\x41\x56\x56\x57\x53\x48\x81\xEC\x28\x0C\x00";
+    static constexpr const char* kMask2 = "xxxxxxxxxxx";
+
+    uintptr_t match2 = Memory::FindPatternRange(region.base, end, kPattern2, kMask2);
+    if (!match2) {
+        Logger::Log("Failed to find limit fix instance 2 pattern");
+        return;
+    }
+
+    uintptr_t target2 = match2 + 8; // points to 0x00000C28 in `sub rsp, 0xC28`
+    Logger::Log("Overwriting limit fix instance 2 - OK");
+    Memory::AddU32(target2, extra12);
+
+    uintptr_t cur = match2 + 1;
+    static constexpr const char* kImm820 = "\x20\x08\x00\x00";
+    static constexpr const char* kImm420 = "\x20\x04\x00\x00";
+    static constexpr const char* kMask4 = "xxxx";
+
+    // Adjust the two pairs of (0x820, 0x420) buffer/stack offsets inside the function
+    for (int pairIdx = 0; pairIdx < 2; ++pairIdx) {
+        uintptr_t pos820 = Memory::FindPatternRange(cur, end, kImm820, kMask4);
+        uintptr_t pos420 = 0;
+        if (pos820) {
+            cur = pos820 + 1;
+            pos420 = Memory::FindPatternRange(cur, end, kImm420, kMask4);
+            if (pos420) {
+                cur = pos420 + 1;
+            }
+        }
+        if (pos420 && pos820) {
+            Memory::AddU32(pos420, extra8);
+            Memory::AddU32(pos820, extra12);
+        }
+    }
+
+    // Scan forward for `add rsp, 0xC28` (48 81 C4 28 0C 00 00)
+    static constexpr const char* kPattern2_1 = "\x48\x81\xC4\x28\x0C\x00\x00";
+    static constexpr const char* kMask2_1 = "xxxxxxx";
+
+    uintptr_t match2_1 = Memory::FindPatternRange(cur, end, kPattern2_1, kMask2_1);
+    if (!match2_1) {
+        Logger::Log("Failed to find limit fix instance 2_1 pattern");
+        return;
+    }
+
+    uintptr_t target2_1 = match2_1 + 3;
+    Logger::Log("Overwriting limit fix instance 2_1 - OK");
+    Memory::AddU32(target2_1, extra12);
+}
+
+void PatchLimitFixInstance3(int32_t pedLimit) {
+    static constexpr const char* kPattern3 = "\xBA\x56\x44\xA5\x8D\x41\xB8\x01\x00\x00\x00";
+    static constexpr const char* kMask3 = "xxxxxxxxxxx";
+
+    uintptr_t match3 = Memory::FindPattern(kPattern3, kMask3);
+    if (!match3) {
+        Logger::Log("Failed to find limit fix instance 3 pattern");
+        return;
+    }
+
+    uintptr_t target3 = match3 + 0x0B;
+    Logger::Log("Overwriting limit fix instance 3 - OK");
+    Memory::WriteMovEaxImm32(target3, static_cast<uint32_t>(pedLimit));
+}
+
+void PatchLimitFixInstance4(uint32_t value) {
+    static constexpr const char* kPattern4 = "\x75\xEF\xEB\x20\x8B\x40\x04\x83\xF8\xFF";
+    static constexpr const char* kMask4 = "xxxxxxxxxx";
+
+    uintptr_t match4 = Memory::FindPattern(kPattern4, kMask4);
+    if (!match4 || match4 < 0x0C) {
+        Logger::Log("Failed to find limit fix instance 4 pattern");
+        return;
+    }
+
+    uintptr_t target4 = match4 - 0x0C;
+    Logger::Log("Overwriting limit fix instance 4 - OK");
+
+    uint8_t patch[8];
+    patch[0] = 0xB8; // mov eax, imm32
+    std::memcpy(&patch[1], &value, sizeof(uint32_t));
+    patch[5] = 0x90; // nop
+    patch[6] = 0x90; // nop
+    patch[7] = 0x90; // nop
+    Memory::PatchBytes(target4, patch, sizeof(patch));
+}
+
+// ---------------------------------------------------------------------------
+// Main Initialization Sequence (called at ASI load time)
+// ---------------------------------------------------------------------------
+void Initialize() {
+    Logger::Init("XtremeTool.log");
+    Config cfg = Config::Load(L".\\XtremeTool.ini");
+
+    if (cfg.pedLimit > kMaxSafePedPoolLimit) {
+        Logger::Log("Config Error: Ped pool limit is 340 due to technical limitations (stack size of GTA 5 main thread)");
+        cfg.pedLimit = kMaxSafePedPoolLimit;
+    }
+
+    if (!IsEnhancedEdition()) {
+        return;
+    }
+
+    uintptr_t gameBase = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+
+    Logger::Log(std::string("XtremeTool ") + kVersionString + " developed by XtremeV (-Vegas-)");
+    Logger::Log("Loaded - Game Base: " + std::to_string(gameBase));
+    Logger::Log("Ped Spawn Ambient Multiplier: " + std::to_string(cfg.pedSpawnAmbientMultiplier));
+    Logger::Log("Ped Spawn Scenario Multiplier: " + std::to_string(cfg.pedSpawnScenarioMultiplier));
+    Logger::Log("Veh Spawn Ambient Multiplier: " + std::to_string(cfg.vehSpawnAmbientMultiplier));
+    Logger::Log("Veh Spawn Parked Multiplier: " + std::to_string(cfg.vehSpawnParkedMultiplier));
+    Logger::Log(std::string("Use 64 Bit Main Heap Size: ") + (cfg.use64BitHeapSize ? "Yes" : "No"));
+    Logger::Log("Main Heap Size: " + std::to_string(cfg.heapSize) + " MB");
+    Logger::Log(std::string("Use 64 Bit Pool Heap Size: ") + (cfg.use64BitPoolSize ? "Yes" : "No"));
+    Logger::Log("Pool Heap Size: " + std::to_string(cfg.poolSize) + " MB");
+    Logger::Log(std::string("Use 64 Bit Resource Heap Size: ") + (cfg.use64BitResourceSize ? "Yes" : "No"));
+    Logger::Log("Resource Heap Size: " + std::to_string(cfg.resourceSize) + " MB");
+    Logger::Log("Ped Mem Budget: " + std::to_string(cfg.pedMemSize) + " MB");
+    Logger::Log("Veh Mem Budget: " + std::to_string(cfg.vehMemSize) + " MB");
+    Logger::Log("Ped Limit: " + std::to_string(cfg.pedLimit));
+    Logger::Log("Veh Limit: " + std::to_string(cfg.vehLimit));
+    Logger::Log(std::string("Skip Peds Pathfind Pass: ") + (cfg.skipPedsPathfindPass ? "Yes" : "No"));
+
+    // Convert MB to bytes (<< 20)
+    uint64_t heapBytes = static_cast<uint64_t>(cfg.heapSize) << 20;
+    uint64_t poolBytes = static_cast<uint64_t>(cfg.poolSize) << 20;
+    uint64_t resourceBytes = static_cast<uint64_t>(cfg.resourceSize) << 20;
+    uint32_t pedMemBytes = static_cast<uint32_t>(cfg.pedMemSize) << 20;
+
+    if (cfg.poolSize >= cfg.heapSize) {
+        poolBytes = heapBytes / 2;
+        Logger::Log("Pool Size is bigger than heap size, setting to " + std::to_string(poolBytes >> 20) + " MB");
+    }
+
+    // 1. Main Heap Size
+    if (cfg.use64BitHeapSize) {
+        PatchMainHeapSize64(heapBytes);
+    } else {
+        PatchMainHeapSize32(static_cast<uint32_t>(heapBytes));
+    }
+
+    // 2. Pool Heap Size
+    if (cfg.use64BitPoolSize) {
+        PatchPoolHeapSize64(poolBytes);
+    } else {
+        PatchPoolHeapSize32(static_cast<uint32_t>(poolBytes));
+    }
+
+    // 3. Resource Heap Size
+    if (cfg.use64BitResourceSize) {
+        PatchResourceHeapSize64(resourceBytes);
+    } else {
+        PatchResourceHeapSize32(static_cast<uint32_t>(resourceBytes));
+    }
+
+    // 4. Ped & Vehicle Memory Budget
+    PatchPedMemoryBudget(pedMemBytes);
+
+    // 5. Optional Pathfind Pass Skip
+    if (cfg.skipPedsPathfindPass) {
+        PatchSkipPedsPathfindPass();
+    }
+
+    // 6. Spawn Multipliers
+    if (cfg.pedSpawnAmbientMultiplier != 1) {
+        PatchPedSpawnAmbientMultiplier(cfg.pedSpawnAmbientMultiplier);
+    }
+    if (cfg.pedSpawnScenarioMultiplier != 1) {
+        PatchPedSpawnScenarioMultiplier(cfg.pedSpawnScenarioMultiplier);
+    }
+    if (cfg.vehSpawnAmbientMultiplier != 1) {
+        PatchVehSpawnAmbientMultiplier(cfg.vehSpawnAmbientMultiplier);
+    }
+    if (cfg.vehSpawnParkedMultiplier != 1) {
+        PatchVehSpawnParkedMultiplier(cfg.vehSpawnParkedMultiplier);
+    }
+
+    // 7. Max Peds & Vehicles Spawn Caps
+    PatchMaxPeds(cfg.pedLimit - 10);
+    PatchMaxVehAmbient(cfg.vehLimit - 10);
+    PatchMaxVehParked(cfg.vehLimit - 20);
+
+    // 8. Ped Pool Limit (> 256) Fixes
+    if (cfg.pedLimit != kDefaultPedPoolLimit) {
+        PatchPedPoolLimit(cfg.pedLimit);
+        PatchLimitFixInstance1(cfg.pedLimit);
+        PatchLimitFixInstance2(cfg.pedLimit);
+        PatchLimitFixInstance3(cfg.pedLimit);
+    }
+
+    // 9. Limit Fix Instance 4
+    PatchLimitFixInstance4(kLimitFixInstance4Value);
+}
+
+} // namespace Game

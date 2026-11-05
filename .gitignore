@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Build directories
+build/
+out/
+x64/
+Debug/
+Release/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.ipch
+*.VC.db
+*.VC.opendb
